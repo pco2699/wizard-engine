@@ -362,7 +362,7 @@ def allocGlobalBufferWithMarker(size: int) -> Array<byte> {
 // Interface to pre-generated code stubs.
 def I: X86_64Interpreter;
 component X86_64PreGenStubs {
-	private var spcV3Entry: (WasmFunction, Pointer) -> AbruptReturn;
+	private var spcV3Entry: (WasmFunction, Pointer, Pointer) -> AbruptReturn;
 	private var spcLazyCompileStub: X86_64SpcCompileStub;
 	private var spcTierupCompileStub: X86_64SpcCompileStub;
 
@@ -374,7 +374,7 @@ component X86_64PreGenStubs {
 		if (I.interpreterCode == null) gen();
 		return I.interpreterCode.intV3Entry;
 	}
-	def getSpcV3Entry() -> (WasmFunction, Pointer) -> AbruptReturn {
+	def getSpcV3Entry() -> (WasmFunction, Pointer, Pointer) -> AbruptReturn {
 		if (I.interpreterCode == null) gen();
 		return spcV3Entry;
 	}
@@ -505,7 +505,7 @@ component X86_64PreGenStubs {
 
 		// SPC entry point
 		spcV3Entry = CiRuntime.forgeClosure<void,
-			(WasmFunction, Pointer), AbruptReturn>(
+			(WasmFunction, Pointer, Pointer), AbruptReturn>(
 				range.start + ic.spcV3EntryOffset, ());
 		trace_break("spc_entry", range.start + ic.spcV3EntryOffset);
 

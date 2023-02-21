@@ -679,6 +679,12 @@ class X86_64SpcFrameAccessor extends X86_64BaseFrameAccessor {
 	def setOperand(i: int, v: Value); // TODO: translate to interpreter frame
 }
 
+var lazyCompileFunc: Pointer;
+var lazyCompileObject: ExecutionStrategy;
+
+var tierupCompileFunc: Pointer;
+var tierupCompileObject: ExecutionStrategy;
+
 // Global functionality associated with the single-pass compiler for X86-64.
 component X86_64Spc {
 	// Generate the SPC entry stub.
@@ -742,15 +748,15 @@ component X86_64Spc {
 		asm.movq_r_r(Target.V3_RET_GPRS[0], Target.V3_RET_GPRS[2]);
 		asm.ret();
 	}
-	def setTierupCompile(tierUpCompile: WasmFunction -> (WasmFunction, Pointer, AbruptReturn)) {
-		if (tierUpCompile == null) {
-			lazyCompileObject = null;
-			tierUpCompileFunc = Pointer.NULL;
+	def setTierupCompile(tierupCompile: WasmFunction -> (WasmFunction, Pointer, AbruptReturn)) {
+		if (tierupCompile == null) {
+			tierupCompileObject = null;
+			tierupCompileFunc = Pointer.NULL;
 			return;
 		} else {
-			var t = CiRuntime.unpackClosure<ExecutionStrategy, WasmFunction, (WasmFunction, Pointer, AbruptReturn)>(tierUpCompile);
-			tierUpCompileFunc = t.0;
-			lazyCompileObject = t.1;
+			var t = CiRuntime.unpackClosure<ExecutionStrategy, WasmFunction, (WasmFunction, Pointer, AbruptReturn)>(tierupCompile);
+			tierupCompileFunc = t.0;
+			tierupCompileObject = t.1;
 		}
 	}
 	def genTierupCompileStub(w: DataWriter) {
@@ -771,8 +777,8 @@ component X86_64Spc {
 		// Load {lazyCompileObject}.
 		var obj_ptr = int.view(u32.!((Pointer.atField(lazyCompileObject) - Pointer.NULL)));
 		asm.movq_r_m(Target.V3_PARAM_GPRS[0], X86_64Addr.new(null, null, 1, obj_ptr));
-		// Call the {tierUpCompileFunc}.
-		var func_ptr = int.view(u32.!(Pointer.atField(tierUpCompileFunc) - Pointer.NULL));
+		// Call the {tierupCompileFunc}.
+		var func_ptr = int.view(u32.!(Pointer.atField(tierupCompileFunc) - Pointer.NULL));
 		asm.icall_m(X86_64Addr.new(null, null, 1, func_ptr));
 		asm.q.add_r_i(R.RSP, Pointer.SIZE);				// pop function off stack
 		// Tail-call the result of the compile (which could be interpreter entry).
@@ -785,13 +791,13 @@ component X86_64Spc {
 
 	// A handy chokepoint for entering JIT code from V3.
 	def invoke(wf: WasmFunction, sp: Pointer) -> AbruptReturn {
-		return entryStub(wf, sp, wf.decl.target_code.spc_entry);
+		return X86_64PreGenStubs.getSpcV3Entry()(wf, sp, wf.decl.target_code.spc_entry);
 	}
 	def setLazyCompileFor(decl: FuncDecl) {
-		decl.target_code = TargetCode(lazyCompileStub);
+		decl.target_code = TargetCode(X86_64PreGenStubs.getSpcLazyCompileStub().start);
 	}
 	def setTierUpFor(decl: FuncDecl) {
-		decl.target_code = TargetCode(tierUpCompileStub);
+		decl.target_code = TargetCode(X86_64PreGenStubs.getSpcTierupCompileStub().start);
 	}
 	def returnCompileFailed(wf: WasmFunction, err: ErrorGen) -> (WasmFunction, Pointer, AbruptReturn) {
 		var buf = StringBuilder.new();
