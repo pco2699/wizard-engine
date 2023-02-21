@@ -40,3 +40,73 @@ class Monitor {
 	}
 }
 
+type DynamicLoc(wf: WasmFunction: pc: int, frame: TargetFrame) #unboxed;
+
+type Event {
+	// Engine
+	case ActivateMode(strategy: ExecutionStrategy);
+
+	// Parsing/validation
+	case BeforeValidate(module: Module, func: FuncDecl);
+	case AfterValidate(module: Module, func: FuncDecl);
+	case BeforeParse(bytes: Range<byte>);
+	case AfterParse(module: Module);
+	case AfterInstantiate(instance: Instance);
+
+	// Internal performance (normally invisible)
+/*@*/	case Compile(module: Module, func: FuncDecl);
+/*@*/	case BeforeGC();
+/*@*/	case AfterGC();
+
+	// Memory-related events
+/*E*/	case BeforeReadMem(loc: DynamicLoc, memory: Memory, index: u64, size: u64);
+/*E*/	case BeforeGrowMem(loc: DynamicLoc, memory: Memory, pages: u64);
+/*E*/	case BeforeWriteMem(loc: DynamicLoc, memory: Memory, index: u64, size: u64);
+
+	// Table-related events
+/*?*/	case BeforeReadTable(loc: DynamicLoc, table: Table, index: u64);
+/*?*/	case BeforeWriteTable(loc: DynamicLoc, table: Table, index: u64);
+
+	// Global-variable-related events
+/*E*/	case BeforeReadGlobal(loc: DynamicLoc, global: Global);
+/*E*/	case BeforeWriteGlobal(loc: DynamicLoc, global: Global);
+
+	// Synchronous execution-related events
+	case BeforeStart(loc: DynamicLoc);
+	case BeforeMain(wf: WasmFunction, frame: TargetFrame);
+	case BeforeInstr(loc: DynamicLoc);
+/*?*/	case AfterInstr(loc: DynamicLoc);
+/*E*/	case BeforeCall(wf: WasmFunction, frame: TargetFrame);
+/*E*/	case BeforeReturn(loc: DynamicLoc);
+/*@*/	case BeforeUnwind(loc: DynamicLoc);
+/*@*/	case BeforeTrap(reason: TrapReason, loc: DynamicLoc);
+/*E*/	case BeforeThrow(loc: DynamicLoc, t: Throwable);
+/*E*/	case BeforeRethrow(loc: DynamicLoc, t: Throwable);
+/*E*/	case BeforeCatch(loc: DynamicLoc, t: Throwable);
+/*@*/	case BeforeCallImport(instance: Instance, func_index: int);
+/*@*/	case AfterCallImport(instance: Instance, func_index: int);
+
+	// Global engine-related events
+	case Exit(code: int);
+}
+
+class Mirror {
+	def getFrameAccessor(frame: TargetFrame) -> FrameAccessor;
+	// all public fields of instance
+	// all public fields of module
+	// JITed code of a function
+	// execution tier of a function (int, spc, opt)
+}
+
+// Debugger use cases
+// enumerate local variables and the stack
+// next
+// break (conditional, tracing)
+// watchpoint
+// step
+// step into
+// step out
+// get a stack trace (frame accessor and a loop)
+// call into a function (esp. export)
+// evaluate an expression
+// add printf-tracing
