@@ -976,7 +976,10 @@ def ALL_EXE_TESTS: Array<(string, ExeTester -> void)> = [
 
 // Registration for test tiers on various platforms.
 component TestTiers {
-	def X = register("int:", null); // always register interpreter tests
+	// Interpreter tests don't have an execution strategy...
+	def X = register("int:", null);
+	// but a target like x86-64-linux may need to pre-process modules even for the interpreter.
+	var preprocess: (Module) -> void;
 
 	def register(prefix: string, tiering: ExecutionStrategy) {
 		for (t in ALL_EXE_TESTS) {
@@ -1016,11 +1019,13 @@ class ExeTester(t: Tester, tiering: ExecutionStrategy) extends ModuleBuilder {
 		}
 		var f = instance.functions[0];
 		if (tiering != null) {
-			if (tiering != null && WasmFunction.?(f)) tiering.onTestRun(WasmFunction.!(f), err);
+			if (WasmFunction.?(f)) tiering.onTestRun(WasmFunction.!(f), err);
 			if (!err.ok()) {
 				t.fail(err.error_msg);
 				return (instance, Traps.result(TrapReason.ERROR));
 			}
+		} else {
+			if (TestTiers.preprocess != null) TestTiers.preprocess(module);
 		}
 		Execute.limits.max_call_depth = max_call_depth;
 		var buf: StringBuilder;

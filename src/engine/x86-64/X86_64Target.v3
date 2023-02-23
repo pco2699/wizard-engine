@@ -69,6 +69,17 @@ component Target {
 		}
 		return offset + length;
 	}
+	def setTieredEntrypoint(module: Module) {
+		// With multi-tier support, the interpreter calls through target code, so every
+		// function needs a proper entrypoint.
+		var ic = X86_64PreGenStubs.getInterpreterCode();
+		var entry = ic.start + ic.intSpcEntryOffset;
+		for (i = 0; i < module.functions.length; i++) {
+			var f = module.functions[i];
+			if (f.imported()) continue;
+			f.target_code = TargetCode(entry);
+		}
+	}
 }
 
 type TargetCode(spc_entry: Pointer) #unboxed { }
@@ -86,21 +97,10 @@ class X86_64InterpreterOnlyStrategy extends ExecutionStrategy {
 		return X86_64Runtime.run(func, args); // XXX: specialize for interpreter-only
 	}
 	def onModuleFinish(module: Module, size: u32, err: ErrorGen) {
-		if (Target.tuning.multiTierSupport) setTieredEntrypoint(module);
+		if (Target.tuning.multiTierSupport) Target.setTieredEntrypoint(module);
 	}
 	def onTestRun(wf: WasmFunction, err: ErrorGen) {
-		if (Target.tuning.multiTierSupport) setTieredEntrypoint(wf.instance.module);
-	}
-	private def setTieredEntrypoint(module: Module) {
-		// With multi-tier support, the interpreter calls through target code, so every
-		// function needs a proper entrypoint.
-		var ic = X86_64PreGenStubs.getInterpreterCode();
-		var entry = ic.start + ic.intSpcEntryOffset;
-		for (i = 0; i < module.functions.length; i++) {
-			var f = module.functions[i];
-			if (f.imported()) continue;
-			f.target_code = TargetCode(entry);
-		}
+		if (Target.tuning.multiTierSupport) Target.setTieredEntrypoint(wf.instance.module);
 	}
 }
 
