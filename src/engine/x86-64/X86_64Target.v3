@@ -69,16 +69,24 @@ component Target {
 		}
 		return offset + length;
 	}
-	def setTieredEntrypoint(module: Module) {
+	def setTieredEntrypoint(module: Module) { // TODO: remove, move all tests/entrypoints to validation
 		// With multi-tier support, the interpreter calls through target code, so every
 		// function needs a proper entrypoint.
+		if (!Target.tuning.multiTierSupport) return;
 		var ic = X86_64PreGenStubs.getInterpreterCode();
 		var entry = ic.start + ic.intSpcEntryOffset;
-		for (i = 0; i < module.functions.length; i++) {
+		for (i < module.functions.length) {
 			var f = module.functions[i];
-			if (f.imported()) continue;
 			f.target_code = TargetCode(entry);
 		}
+	}
+	def setUnconditionalInterpreterEntryIfMultiTier(f: FuncDecl) {
+		// With multi-tier support, the interpreter calls through target code, so every
+		// function needs a proper entrypoint.
+		if (!Target.tuning.multiTierSupport) return;
+		var ic = X86_64PreGenStubs.getInterpreterCode();
+		var entry = ic.start + ic.intSpcEntryOffset;
+		f.target_code = TargetCode(entry);
 	}
 }
 
@@ -96,11 +104,10 @@ class X86_64InterpreterOnlyStrategy extends ExecutionStrategy {
 	def call(func: Function, args: Array<Value>) -> Result {
 		return X86_64Runtime.run(func, args); // XXX: specialize for interpreter-only
 	}
-	def onModuleFinish(module: Module, size: u32, err: ErrorGen) {
-		if (Target.tuning.multiTierSupport) Target.setTieredEntrypoint(module);
-	}
-	def onTestRun(wf: WasmFunction, err: ErrorGen) {
-		if (Target.tuning.multiTierSupport) Target.setTieredEntrypoint(wf.instance.module);
+	def onFuncValidationFinish(module: Module, func_index: u32, err: ErrorGen) {
+		if (err != null && !err.ok()) return;
+		var func = module.functions[u31.!(func_index)];
+		Target.setUnconditionalInterpreterEntryIfMultiTier(func);
 	}
 }
 
@@ -195,7 +202,7 @@ class X86_64SpcLazyStrategy extends ExecutionStrategy {
 		installLazyCompileStubForModule(module, err);
 	}
 	// Called before a test function is run.
-	def onTestRun(wf: WasmFunction, err: ErrorGen) {
+	def onTestRun(wf: WasmFunction, err: ErrorGen) { // TODO: move this to onFuncValidationFinish
 		installLazyCompileStubForModule(wf.instance.module, err);
 	}
 	// Call a function with arguments and return a result.
@@ -203,6 +210,7 @@ class X86_64SpcLazyStrategy extends ExecutionStrategy {
 		return X86_64Runtime.run(func, args); // XXX: specialize for JIT-only, do lazy compile
 	}
 	private def installLazyCompileStubForModule(module: Module, err: ErrorGen) {
+		// TODO: lazy-allocate module code too
 		// ensure entrypoint and lazy compile stubs are generated
 		X86_64PreGenStubs.gen();
 		X86_64Spc.setLazyCompile(lazyCompile);
@@ -224,6 +232,7 @@ class X86_64SpcLazyStrategy extends ExecutionStrategy {
 		var masm = X86_64MacroAssembler.!(compiler.masm), w = masm.asm.w;
 
 		// Bind all trap handler labels used in the newly-compiled code to the handlers at the end of the code.
+		// XXX: cache the label objects too?
 		for (reason in TrapReason) {
 			var label = masm.newTrapLabel(reason); // XXX: cache trap labels
 			masm.bindLabelTo(label, code.trapHandlerOffsets[reason.tag] - code.codeEnd);
