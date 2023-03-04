@@ -219,10 +219,10 @@ class FuncDecl(sig_index: int) extends Decl {
 		n.target_code = this.target_code;
 		return n;
 	}
-	def findExHandler(module: Module, tag: Tag, throw_pc: int) -> ExHandler {
+	def findExHandler(instance: Instance, tag: Tag, throw_pc: int) -> ExHandler {
 		var i = 0;
 		if (Trace.exception) Trace.OUT.put3("findExHandler(func=%q, tag=%d, throw_pc=%d)",
-			this.render(module.names, _), tag.decl.tag_index, throw_pc).outln();
+			this.render(instance.module.names, _), tag.decl.tag_index, throw_pc).outln();
 		while (i < handlers.length) {
 			var e = handlers[i];
 			if (Trace.exception) Trace.OUT.put3("  entry[%d...%d] tag=%d", e.start, e.end, e.tag).outln();
@@ -234,7 +234,7 @@ class FuncDecl(sig_index: int) extends Decl {
 				throw_pc = e.handler_pc;
 				if (Trace.exception) Trace.OUT.put1("  delegate: throw_pc=%d", throw_pc).outln();
 				continue;
-			} else if (e.tag == Modules.EX_TAG_ALL || module.tags[e.tag] == tag.decl) {
+			} else if (e.tag == Modules.EX_TAG_ALL || instance.tags[e.tag] == tag) {
 				if (Trace.exception) Trace.OUT.put3("  match: handler_pc=%d, ex_slot=%d, vsp=%d", e.handler_pc, e.ex_slot, e.val_stack_top).outln();
 				return ExHandler(e.handler_pc, e.ex_slot, e.val_stack_top, e.sidetable_pos);
 			}
