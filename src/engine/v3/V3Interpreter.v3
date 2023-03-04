@@ -119,8 +119,15 @@ component V3Interpreter {
 			}
 			CATCH,
 			CATCH_ALL,
+			DELEGATE,
 			ELSE => {
 				codeptr.at(doGoto(pc));
+			}
+			THROW => {
+				var index = codeptr.read_uleb31();
+				var tag = frame.func.instance.tags[index];
+				var ex = Exception.new(tag, popN(tag.decl.fields.length), null);
+				throw(ex);
 			}
 			END => {
 				if (codeptr.available() == 0) doReturn();
@@ -184,9 +191,6 @@ component V3Interpreter {
 					prepareReturnCall(func.sig);
 					doCallFunction(func);
 				}
-			}
-			DELEGATE => {
-				codeptr.skip_label();
 			}
 			DROP => {
 				pop();
@@ -1028,13 +1032,17 @@ component V3Interpreter {
 			}
 		}
 	}
-	def popFrames(prev_top: int) -> Array<(WasmFunction, int)> {
+	def gatherFrames(prev_top: int) -> Array<(WasmFunction, int)> {
 		var frames = Array<(WasmFunction, int)>.new(call_stack.top - prev_top);
 		for (i = prev_top; i < call_stack.top; i++) {
 			var f = call_stack.elems[i];
 			frames[i - prev_top] = (f.func, f.pc);
 			f.accessor = null;
 		}
+		return frames;
+	}
+	def popFrames(prev_top: int) -> Array<(WasmFunction, int)> {
+		var frames = gatherFrames(prev_top);
 		call_stack.top = prev_top;
 		return frames;
 	}
@@ -1091,6 +1099,27 @@ component V3Interpreter {
 		if (a <= min) return trap(TrapReason.FLOAT_UNREPRESENTABLE);
 		if (!(a == a)) trap(TrapReason.FLOAT_UNREPRESENTABLE);
 		push(trunc(a));
+	}
+	def throw(ex: Exception) {
+		ex.prepend(gatherFrames(prev_call_stack_top), null);
+		for (i = call_stack.top - 1; i >= prev_call_stack_top; i--) {
+			var f = call_stack.elems[i];
+			var handler = f.func.decl.findExHandler(frame.func.instance.module, ex.tag, frame.pc);
+			if (handler.handler_pc >= 0) {
+				call_stack.top = i + 1;
+				var code = f.func.decl.cur_bytecode;
+				f.pc = handler.handler_pc;
+				f.stp = handler.sidetable_pos;
+				codeptr.reset(code, f.pc, code.length);
+				val_stack.top = f.fp + handler.val_stack_top;
+				// TODO: set ex_slot
+				for (v in ex.vals) val_stack.push(v);
+				frame = f;
+				return;
+			}
+		}
+		thrown = ex; // unhandled exception
+		call_stack.top = prev_call_stack_top;
 	}
 	def trap(reason: TrapReason) {
 		thrown = Trap.new(reason, null, null);

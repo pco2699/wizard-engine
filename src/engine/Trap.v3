@@ -67,12 +67,12 @@ class Exception extends Throwable {
 	new(tag, vals, stacktrace: StackSegment) super(stacktrace) { }
 
 	def render(buf: StringBuilder) -> StringBuilder {
-		buf.put1("exception[%d", tag.decl.sig_index);
-		for (v in vals) {
-			buf.puts(", ");
-			Values.render(v, buf);
+		buf.put1("exception[tag=%d](", tag.decl.sig_index);
+		for (i < vals.length) {
+			if (i > 0) buf.csp();
+			Values.render(vals[i], buf);
 		}
-		return buf.puts("]");
+		return buf.puts(")");
 	}
 }
 
