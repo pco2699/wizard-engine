@@ -129,6 +129,12 @@ component V3Interpreter {
 				var ex = Exception.new(tag, popN(tag.decl.fields.length), null);
 				throw(ex);
 			}
+			RETHROW => {
+				var sidetable = frame.func.decl.sidetable;
+				var ex_slot = sidetable[frame.stp];
+				var exval = val_stack.elems[frame.fp + frame.func.decl.num_locals + ex_slot];
+//TOD				throw(Value.Ref.!(ex));
+			}
 			END => {
 				if (codeptr.available() == 0) doReturn();
 			}

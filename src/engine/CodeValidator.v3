@@ -184,6 +184,8 @@ class CodeValidator(extensions: Extension.set, limits: Limits, module: Module, e
 					var ex_slot = computeExSlot();
 					ex_handlers.put(ExHandlerEntry(tag.tag_index, range.0, range.1,
 						codeptr.pos - func_start_pos, ex_slot, ctl_top.val_stack_top, ctlxfer.sidetable.length));
+					var ex_slots = ex_slot + 1;
+					if (ex_slots > func.num_ex_slots) func.num_ex_slots = u16.!(ex_slots); // TODO: depth check
 					checkArgsAndTransfer();
 					resetInit();
 					val_stack.top = ctl_top.val_stack_top;
@@ -333,7 +335,7 @@ class CodeValidator(extensions: Extension.set, limits: Limits, module: Module, e
 					if (ctl_top.start_opcode != Opcode.TRY.code) return err_atpc().MismatchedDelegate();
 					var range = startExHandler();
 					var depth = parser.readLabel();
-					var target = getControl(depth);
+					var target = getControl(depth + 1);
 					if (target.start_opcode != Opcode.TRY.code) return err_atpc().MismatchedDelegate();
 					checkArgsAndTransfer();
 					ex_handlers.put(ExHandlerEntry(Modules.EX_TAG_DELEGATE, range.0, range.1,

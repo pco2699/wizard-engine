@@ -175,6 +175,7 @@ class FuncDecl(sig_index: int) extends Decl {
 	var func_index = -1;
 	var reffed: bool;
 	var num_locals: u16;
+	var num_ex_slots: u16;
 	def var cur_bytecode: Array<byte>;	// current (potentially instrumented) bytecode
 	def var orig_bytecode: Array<byte>;	// unmodified original bytecode
 	var sidetable = NO_SIDETABLE;	// sidetable, including control transfers
