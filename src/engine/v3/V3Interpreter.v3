@@ -132,8 +132,13 @@ component V3Interpreter {
 			RETHROW => {
 				var sidetable = frame.func.decl.sidetable;
 				var ex_slot = sidetable[frame.stp];
+				var popcount = sidetable[frame.stp + 3], valcount = 0;
+				if (popcount > 0) {
+					copyVals(valcount, val_stack.top - int.!(popcount + valcount));
+				}
+				frame.stp += 4;
 				var exval = val_stack.elems[frame.fp + frame.func.decl.num_locals + ex_slot];
-//TOD				throw(Value.Ref.!(ex));
+				throw(Exception.!(Value.Ref.!(exval).val));
 			}
 			END => {
 				if (codeptr.available() == 0) doReturn();
@@ -1118,8 +1123,9 @@ component V3Interpreter {
 				f.stp = handler.sidetable_pos;
 				codeptr.reset(code, f.pc, code.length);
 				val_stack.top = f.fp + handler.val_stack_top;
-				// TODO: set ex_slot
 				for (v in ex.vals) val_stack.push(v);
+				if (Trace.exception) Trace.OUT.put2("  set_ex_slot fp=%d, ex_slot=%d", f.fp, handler.ex_slot).outln();
+				val_stack.elems[f.fp + f.func.decl.num_locals + handler.ex_slot] = Value.Ref(ex);
 				frame = f;
 				return;
 			}

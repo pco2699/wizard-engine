@@ -34,7 +34,7 @@ component Traps {
 }
 
 // Abrupt return objects are returned to the interpreter or JIT code to signal to unwind their frames.
-class AbruptReturn { }
+class AbruptReturn extends Object { }
 
 // Throwables are abrupt returns that have stack traces that can be thrown.
 class Throwable(var stacktrace: StackSegment) extends AbruptReturn {

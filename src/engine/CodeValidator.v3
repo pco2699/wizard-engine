@@ -1209,7 +1209,7 @@ class SidetableBuilder {
 		}
 	}
 	def rethrow(ex_slot: int, popcount: int) {
-		sidetable.put(ex_slot).put(0).put(0).put(popcount);
+		sidetable.put(ex_slot).put(0).put(popcount).put(0); // XXX: only need 1 entry for rethrow
 	}
 	def rel(pos: int) -> int {
 		return pos - start_pos;
