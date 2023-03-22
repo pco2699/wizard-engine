@@ -227,7 +227,7 @@ class FuncDecl(sig_index: int) extends Decl {
 		while (i < handlers.length) {
 			var e = handlers[i];
 			if (Trace.exception) Trace.OUT.put3("  entry[%d...%d] tag=%d", e.start, e.end, e.tag).outln();
-			if (throw_pc < e.start || throw_pc > e.end) {
+			if (throw_pc < e.start || throw_pc >= e.end) {
 				// not in range of the handler
 			} else if (e.tag == Modules.EX_TAG_DELEGATE) {
 				// DELEGATE restarts the search as if it thrown at a different PC

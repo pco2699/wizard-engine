@@ -77,6 +77,7 @@ component V3Interpreter {
 		// Initialize locals
 		frame = nf;
 		codeptr.iterate_local_codes(push_locals);
+		for (i < f.decl.num_ex_slots) val_stack.push(Values.REF_NULL); // init ex slots
 		nf.pc = codeptr.pos; // move code pointer after locals
 	}
 	def push_locals(count: u32, vtc: ValueTypeCode) {
@@ -119,9 +120,11 @@ component V3Interpreter {
 			}
 			CATCH,
 			CATCH_ALL,
-			DELEGATE,
 			ELSE => {
 				codeptr.at(doGoto(pc));
+			}
+			DELEGATE => {
+				codeptr.skip_label();
 			}
 			THROW => {
 				var index = codeptr.read_uleb31();
@@ -132,7 +135,8 @@ component V3Interpreter {
 			RETHROW => {
 				var sidetable = frame.func.decl.sidetable;
 				var ex_slot = sidetable[frame.stp];
-				var popcount = sidetable[frame.stp + 3], valcount = 0;
+				if (Trace.exception) Trace.OUT.put2("  rethrow fp=%d ex_slot=%d", frame.fp, ex_slot).outln();
+				var popcount = sidetable[frame.stp + 2], valcount = 0;
 				if (popcount > 0) {
 					copyVals(valcount, val_stack.top - int.!(popcount + valcount));
 				}
@@ -1122,7 +1126,8 @@ component V3Interpreter {
 				f.pc = handler.handler_pc;
 				f.stp = handler.sidetable_pos;
 				codeptr.reset(code, f.pc, code.length);
-				val_stack.top = f.fp + handler.val_stack_top;
+				// TODO: clean up frame math here
+				val_stack.top = f.fp + handler.val_stack_top + f.func.decl.num_locals + f.func.decl.num_ex_slots;
 				for (v in ex.vals) val_stack.push(v);
 				if (Trace.exception) Trace.OUT.put2("  set_ex_slot fp=%d, ex_slot=%d", f.fp, handler.ex_slot).outln();
 				val_stack.elems[f.fp + f.func.decl.num_locals + handler.ex_slot] = Value.Ref(ex);

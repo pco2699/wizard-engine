@@ -170,6 +170,7 @@ class CodeValidator(extensions: Extension.set, limits: Limits, module: Module, e
 					checkArgsAndPushControl(opcode, pr.0, pr.1);
 					ctl_top.sidetable_pos = ctlxfer.sidetable.length;
 					ctl_top.try_end = -1;
+					ctl_top.delegate_pos = opcode_pos + 1;
 				}
 				CATCH => {
 					if (!checkExtension(Extension.EXCEPTION_HANDLING, opcode)) return;
@@ -178,14 +179,13 @@ class CodeValidator(extensions: Extension.set, limits: Limits, module: Module, e
 					}
 					var range = startExHandler();
 					ctl_top.start_opcode = opcode.code;
+					ctl_top.delegate_pos = opcode_pos;
 					var tag = parser.readTagRef();
 					if (tag == null) return;
 					ctlxfer.ref0(ctl_top, opcode_pos);  // implicit jump to end of try block
-					var ex_slot = computeExSlot();
+					var ex_slot = findExSlot(null).0;
 					ex_handlers.put(ExHandlerEntry(tag.tag_index, range.0, range.1,
 						codeptr.pos - func_start_pos, ex_slot, ctl_top.val_stack_top, ctlxfer.sidetable.length));
-					var ex_slots = ex_slot + 1;
-					if (ex_slots > func.num_ex_slots) func.num_ex_slots = u16.!(ex_slots); // TODO: depth check
 					checkArgsAndTransfer();
 					resetInit();
 					val_stack.top = ctl_top.val_stack_top;
@@ -202,18 +202,11 @@ class CodeValidator(extensions: Extension.set, limits: Limits, module: Module, e
 					if (!checkExtension(Extension.EXCEPTION_HANDLING, opcode)) return;
 					var depth = parser.readLabel();
 					var target = getControl(depth);
-					var ex_slot = 0, found = false;
-					for (i < ctl_stack.top) { // XXX: linear search for exception slot
-						var ctl = ctl_stack.elems[i];
-						if (ctl.start_opcode == Opcode.CATCH.code || ctl.start_opcode == Opcode.CATCH_ALL.code) {
-							ex_slot++;
-						}
-						if (ctl == target) {
-							found = true;
-							break;
-						}
+					var t = findExSlot(target), ex_slot = t.0, found = t.1;
+					if (!found || (target.start_opcode != Opcode.CATCH.code &&
+						target.start_opcode != Opcode.CATCH_ALL.code)) {
+						err_atpc().RethrowNotInCatch();
 					}
-					if (ex_slot < 0 || !found) err_atpc().RethrowNotInCatch();
 					var popcount = val_stack.top - ctl_top.val_stack_top;
 					ctlxfer.rethrow(ex_slot, popcount);
 					setUnreachable();
@@ -336,10 +329,10 @@ class CodeValidator(extensions: Extension.set, limits: Limits, module: Module, e
 					var range = startExHandler();
 					var depth = parser.readLabel();
 					var target = getControl(depth + 1);
-					if (target.start_opcode != Opcode.TRY.code) return err_atpc().MismatchedDelegate();
+					if (target == null) return;
 					checkArgsAndTransfer();
 					ex_handlers.put(ExHandlerEntry(Modules.EX_TAG_DELEGATE, range.0, range.1,
-						target.start_pos - func_start_pos, 0, ctl_top.val_stack_top, ctlxfer.sidetable.length));
+						target.delegate_pos - func_start_pos, 0, ctl_top.val_stack_top, ctlxfer.sidetable.length));
 					ctlxfer.bind(ctl_top, opcode_pos, ctlxfer.sidetable.length);
 					resetInit();
 					ctl_stack.pop();
@@ -351,10 +344,11 @@ class CodeValidator(extensions: Extension.set, limits: Limits, module: Module, e
 						return err_atpc().MismatchedCatch();
 					}
 					ctl_top.start_opcode = opcode.code;
+					ctl_top.delegate_pos = opcode_pos;
 					var range = startExHandler();
 					checkArgsAndTransfer();
 					ctlxfer.ref0(ctl_top, opcode_pos); // implicit jump to end of try block
-					var ex_slot = computeExSlot();
+					var ex_slot = findExSlot(null).0;
 					ex_handlers.put(ExHandlerEntry(Modules.EX_TAG_ALL, range.0, range.1,
 						codeptr.pos - func_start_pos, ex_slot, ctl_top.val_stack_top, ctlxfer.sidetable.length));
 					resetInit();
@@ -858,10 +852,21 @@ class CodeValidator(extensions: Extension.set, limits: Limits, module: Module, e
 	}
 	def startExHandler() -> (int, int) {
 		if (ctl_top.try_end < 0) ctl_top.try_end = opcode_pos;
-		return (ctl_top.start_pos - func_start_pos, ctl_top.try_end - func_start_pos);
+		return (ctl_top.start_pos + 1 - func_start_pos, ctl_top.try_end - func_start_pos);
 	}
-	def computeExSlot() -> int {
-		return 0; // TODO
+	def findExSlot(target: ControlEntry) -> (int, bool) {
+		var ex_slot = -1, found = false;
+		for (i < ctl_stack.top) { // XXX: linear search for exception slot
+			var ctl = ctl_stack.elems[i];
+			if (ctl.start_opcode == Opcode.CATCH.code || ctl.start_opcode == Opcode.CATCH_ALL.code) ex_slot++;
+			if (ctl == target) {
+				found = true;
+				break;
+			}
+		}
+		var ex_slots = ex_slot + 1;
+		if (ex_slots > func.num_ex_slots) func.num_ex_slots = u16.!(ex_slots);
+		return (ex_slot, found);
 	}
 	def noGC(opcode: Opcode) -> bool {
 		return !checkExtension(Extension.GC, opcode);
@@ -1072,6 +1077,7 @@ class CodeValidator(extensions: Extension.set, limits: Limits, module: Module, e
 		}
 		ctl_top = ctl;
 		ctl.start_pos = opcode_pos;
+		ctl.delegate_pos = opcode_pos;
 		ctl.start_opcode = opcode;
 		ctl.sidetable_pos = -1;
 		ctl.params = params;
@@ -1129,6 +1135,7 @@ private enum InitStatus {
 // An entry in the control stack, exposed guts.
 class ControlEntry {
 	var start_pos: int;
+	var delegate_pos: int;
 	var start_opcode: byte;
 	var sidetable_pos: int;
 	var params: Array<ValueType>;
@@ -1209,6 +1216,7 @@ class SidetableBuilder {
 		}
 	}
 	def rethrow(ex_slot: int, popcount: int) {
+		if (Trace.validation) OUT.put2("    rethrow ex_slot=%d popcount=%d", ex_slot, popcount).outln();
 		sidetable.put(ex_slot).put(0).put(popcount).put(0); // XXX: only need 1 entry for rethrow
 	}
 	def rel(pos: int) -> int {
