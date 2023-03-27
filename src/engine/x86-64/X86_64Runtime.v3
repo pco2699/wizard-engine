@@ -242,6 +242,12 @@ component X86_64Runtime {
 		var trap = Trap.new(reason, null, null);
 		return prependFrames(trap, null, CiRuntime.callerSp());
 	}
+	def runtime_THROW(instance: Instance, tindex: u32) -> AbruptReturn {
+		if (Trace.exception || Debug.runtime) Trace.OUT.put1("runtime_THROW(%d)", tindex);
+		var tag = instance.tags[tindex];
+		var ex = Exception.new(tag, valueStack.popN(tag.decl.fields), null);
+		return prependFrames(ex, null, CiRuntime.callerSp());
+	}
 	def prependFrames(thrown: Throwable, hf: HostFunction, sp: Pointer) -> Throwable {
 		var frame = TargetFrame(sp);
 		var trace = Vector<(WasmFunction, int)>.new();

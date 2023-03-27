@@ -1932,7 +1932,8 @@ class X86_64InterpreterGen(ic: X86_64InterpreterCode, w: DataWriter) {
 			(Opcode.ARRAY_GET, refRuntimeCall(RT.runtime_ARRAY_GET)),
 			(Opcode.ARRAY_GET_S, refRuntimeCall(RT.runtime_ARRAY_GET_S)),
 			(Opcode.ARRAY_GET_U, refRuntimeCall(RT.runtime_ARRAY_GET_U)),
-			(Opcode.ARRAY_SET, refRuntimeCall(RT.runtime_ARRAY_SET))
+			(Opcode.ARRAY_SET, refRuntimeCall(RT.runtime_ARRAY_SET)),
+			(Opcode.THROW, refRuntimeCall(RT.runtime_THROW))
 		]) {
 			bindHandler(t.0);
 			genReadUleb32(regs.tmp0);
