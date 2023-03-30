@@ -144,6 +144,7 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		}
 	}
 	def checkRegAlloc() {
+		masm.regAlloc.debugTODO();
 		if (Trace.compiler) {
 			OUT.puts("checkRegAlloc ");
 			traceStack();
@@ -576,7 +577,7 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 				state.setStored(index);
 			}
 			state.setNoReg(index); // steal reg
-			masm.regAlloc.unfree(lv.reg, int.!(state.sp));
+			masm.regAlloc.assign(lv.reg, int.!(state.sp));
 			state.push(lv.kindFlags(IN_REG), lv.reg, 0);
 		} else {
 			var kind = lv.kind();
@@ -591,7 +592,7 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		if (sv.inReg()) {
 			var flags = (lv.flags & (KIND_MASK | TAG_STORED)) | (sv.flags & (IN_REG | IS_CONST));
 			state.set(index, flags, sv.reg, sv.const);
-			masm.regAlloc.unfree(sv.reg, index);
+			masm.regAlloc.reassign(sv.reg, int.!(state.sp), index);
 			freeVal(lv);
 		} else if (sv.isConst()) {
 			var flags = (lv.flags & (KIND_MASK | TAG_STORED)) | (sv.flags & (IN_REG | IS_CONST));
@@ -599,7 +600,13 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 			freeVal(lv);
 		} else {
 			var kind = lv.kind();
-			var reg = allocReg(kind, index);
+			var reg: Reg;
+			if (masm.regAlloc.frequency(lv.reg) == 1) {
+				reg = lv.reg; // used only once; can reuse
+			} else {
+				masm.regAlloc.unassign(lv.reg, index); // unref existing register
+				reg = allocReg(kind, index);           // and allocate a new one
+			}
 			masm.emit_mov_r_s(kind, reg, state.sp);
 			var flags = (lv.flags & (KIND_MASK | TAG_STORED)) | IN_REG;
 			state.set(index, flags, reg, 0);
@@ -1135,7 +1142,7 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 	}
 	def allocTmpFixed(kind: ValueKind, reg: Reg) -> Reg {
 		if (masm.regAlloc.isFree(reg)) {
-			masm.regAlloc.unfree(reg, TMP_SLOT);
+			masm.regAlloc.assign(reg, TMP_SLOT);
 		} else {
 			spillReg(reg);
 			reassignReg(reg, TMP_SLOT);
@@ -1197,7 +1204,7 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 	}
 	def reassignReg(reg: Reg, slot: int) {
 		masm.regAlloc.free(reg);
-		masm.regAlloc.unfree(reg, int.!(state.sp));
+		masm.regAlloc.assign(reg, slot);
 	}
 	// Pop the top of stack into a register and prepare for it to be overwritten.
 	def popRegToOverwrite() -> SpcVal {
@@ -1490,7 +1497,7 @@ class SpcState(regAlloc: RegAlloc) {
 		regAlloc.clear();
 		for (i < max) {
 			var sv = nstate[i];
-			if (sv.inReg()) regAlloc.unfree(sv.reg, int.!(i));
+			if (sv.inReg()) regAlloc.assign(sv.reg, int.!(i));
 			state[i] = sv;
 		}
 		sp = max;

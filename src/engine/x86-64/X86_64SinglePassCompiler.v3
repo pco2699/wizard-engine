@@ -145,7 +145,7 @@ class X86_64SinglePassCompiler extends SinglePassCompiler {
 		emit(G(b.reg));
 		freeVal(b);
 		freeVal(a);
-		masm.regAlloc.unfree(dst, int.!(state.sp));
+		masm.regAlloc.assign(dst, int.!(state.sp));
 		state.push(a.kindFlagsAndTag(IN_REG), dst, 0);
 	}
 	def visit_I32_DIV_S() { visitIDivRem(X86_64Regs2.RAX, mmasm.emit_i32_div_s); } // XXX: fold potentially-trapping div/rem
