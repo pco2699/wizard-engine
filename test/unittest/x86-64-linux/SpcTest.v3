@@ -174,9 +174,12 @@ def test_findSpill(t: SpcTester) {
 	var r1 = regAlloc.alloc(ValueKind.I32, 11);
 	var r2 = regAlloc.alloc(ValueKind.I32, 22);
 
-	var rs = regAlloc.findSpillCandidate(ValueKind.I32);
+	var rs = regAlloc.findSpillCandidate(ValueKind.I32, addOne);
 	t.t.assertne(r1, r2);
 	t.t.asserteq(r1, rs);
+}
+def addOne(score: int, reg: Reg, slot: int) -> int {
+	return score + 1;
 }
 
 def test_alias0(t: SpcTester) {

@@ -147,7 +147,7 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		masm.regAlloc.debugTODO();
 		if (Trace.compiler) {
 			OUT.puts("checkRegAlloc ");
-			traceStack();
+			state.trace();
 		}
 		for (i < regRefCounts.length) regRefCounts[i] = 0;
 		for (i < state.sp) {
@@ -544,16 +544,12 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 			}
 			return;
 		}
-		state.prepareRangeForMerge(base, base + count, resolver);
+		state.doSelectTrueTransferInPlace(count, resolver);
 		var label = masm.newLabel(it.pc);
 		var cond = MasmBrCond.I32_NONZERO;
 		if (sv.inReg()) masm.emit_br_r(sv.reg, cond, label);
 		else masm.emit_br_m(masm.slotAddr(state.sp), cond, label);
-		for (i = base; i < base + count; i++) {
-			var fv = state.state[i + count];
-			resolver.addMove((i, state.state[i]), (i + count, fv));
-			unrefSlot(i + count);
-		}
+		state.doSelectFalseTransferInPlace(count, resolver);
 		resolver.emitMoves();
 		masm.bindLabel(label);
 		state.sp = base + count;
@@ -1134,7 +1130,7 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		unrefs[num_unrefs++] = (reg, assign);
 	}
 	def findAndSpillReg(kind: ValueKind, slot: int) -> Reg {
-		var reg = masm.regAlloc.findSpillCandidate(kind);
+		var reg = masm.regAlloc.findSpillCandidate(kind, addSpillCost);
 		if (reg != NO_REG) {
 			spillReg(reg);
 			reassignReg(reg, slot);
@@ -1143,6 +1139,13 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		bailout("out of registers");
 		masm.regAlloc.clear();
 		return masm.regAlloc.alloc(kind, slot);
+	}
+	def addSpillCost(score: int, reg: Reg, slot: int) -> int {
+		if (!state.state[slot].isStored()) score += 100;      // will generate a spill
+		if (slot < 10 && slot < func.num_locals) score += 10; // penalize first 10 locals
+		if (int.!(state.sp) - slot < 4) score += 20;          // penalize top 4 operand slots
+		// XXX: boost first 8 x86 registers because of possible REX byte?
+		return score;
 	}
 
 	//====================================================================
@@ -1240,7 +1243,7 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		OUT.put2("  %x(+%d): ", it.pc, it.pc - start_pos);
 		it.trace(OUT, module, instrTracer);
 		while (OUT.length < 32) OUT.puts(" ");
-		traceStack();
+		state.trace();
 	}
 	def traceOpcodeUnreachable() {
 		OUT.out(Trace.STDOUT);
@@ -1248,11 +1251,6 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		it.trace(OUT, module, instrTracer);
 		while (OUT.length < 32) OUT.puts(" ");
 		OUT.puts("...");
-		OUT.outln();
-	}
-	def traceStack() {
-		OUT.put1("sp=%d |", state.sp);
-		for (i < state.sp) state.state[i].render(OUT, config.regSet);
 		OUT.outln();
 	}
 }
@@ -1400,16 +1398,89 @@ class SpcState(regAlloc: RegAlloc) {
 	def prepareLoop(resolver: SpcMoveResolver) {
 		var target = ctl_stack.peek();
 		target.merge_count = 1;
-		prepareRangeForMerge(0, sp, resolver);
-		target.merge_state = Arrays.range(state, 0, int.view(sp));
+		var val_count = u32.view(target.params.length);
+		target.merge_state = doFirstTransferAndGetMerge(sp - val_count, val_count, resolver);
+		resetTo(sp, target.merge_state);
+	}
+	// Prepare for the first transfer to a label by revoking registers/constants and emitting
+	// any necessary moves. Here, {L} refers to locals, {Z} to the frozen portion of the operand
+	// stack, and {F} to the arguments to the loop. The current state is *not* updated, but
+	// the new target merge state is returned.
+	//   | L | Z | T | ... | F |
+	//     |                 |
+	//     |       +---------+
+	//     |       |
+	//     v       v
+	//   |!L!| Z |!F!|
+	def doFirstTransferAndGetMerge(sp: u32, val_count: u32, resolver: SpcMoveResolver) -> Array<SpcVal> {
+		var merge = Arrays.range(state, 0, int.view(sp + val_count));
+//			for (i < top) {
+//				var from = state[i], to = toMergeVal(from);
+//				target.merge_state[i] = to;
+//				if (from != to) resolver.addMove((i, to), (i, from));
+//			}
+//			for (i < vals) {
+//				var f = (sp - vals + i), t = top + i;
+//				var from = state[f], to = toMergeVal(from);
+//				target.merge_state[t] = to;
+//				resolver.addMove((t, to), (f, from));
+//			}
+		return merge;
+	}
+	// Prepare the current state for the transfer of a true select by revoking registers/constants and emitting
+	// any necessary moves. Here, {L} refers to locals, {Z} to the frozen portion of the operand
+	// stack, and {F} to the arguments to the loop.
+	//   | L | Z | A | B |
+	//             |
+	//             +
+	//             |
+	//             v
+	//   | L | Z |!F!|
+	def doSelectTrueTransferInPlace(val_count: u32, resolver: SpcMoveResolver) {
+//		state.prepareRangeForMerge(base, base + count, resolver);
+	}
+	// Prepare the current state for the transfer of a false select by revoking registers/constants and emitting
+	// any necessary moves. Here, {L} refers to locals, {Z} to the frozen portion of the operand
+	// stack, and {F} to the arguments to the loop.
+	//   | L | Z | A | B |
+	//                 |
+	//             +---+
+	//             |
+	//             v
+	//   | L | Z |!F!|
+	def doSelectFalseTransferInPlace(val_count: u32, resolver: SpcMoveResolver) {
+//		for (i = base; i < base + count; i++) {
+//			var fv = state.state[i + count];
+//			resolver.addMove((i, state.state[i]), (i + count, fv));
+//			unrefSlot(i + count);
+//		}
 	}
 	def prepareRangeForMerge(start: u32, end: u32, resolver: SpcMoveResolver) {
-		for (i = start; i < end; i++) {
-			var from = state[i], to = toMergeVal(from);
-			state[i] = to;
-			if (from != to) resolver.addMove((i, to), (i, from));
+		for (i = start; i < end; i++) { // XXX: iterate top of stack first?
+			var from = state[i];
+			if (from.reg != NO_REG && regAlloc.frequency(from.reg) > 1) {
+				// A register used in the range can only be used once. Spill other uses.
+				regAlloc.forEachAssignment(from.reg, spillIfNotEqual(_, _, i, resolver));
+			}
+			var to = toMergeVal(from);
+			if (from != to) {
+				state[i] = to;
+				resolver.addMove((i, to), (i, from));
+			}
 		}
 		resolver.emitMoves();
+	}
+	def spillIfNotEqual(reg: Reg, assign: int, slot: u32, resolver: SpcMoveResolver) {
+		if (assign == slot) return;
+		var from = state[slot], to: SpcVal;
+		if (from.isStored()) {
+			// No need to spill, just revoke the register.
+			to = from.withoutReg();
+		} else {
+			to = SpcVal(from.kindFlagsAndTag(IS_STORED), NO_REG, 0);
+			resolver.addMove((slot, to), (slot, from));
+		}
+		state[slot] = to;
 	}
 	def pushIf(params: Array<ValueType>, results: Array<ValueType>, else_label: MasmLabel, end_label: MasmLabel) -> SpcControl {
 		var ctl = pushControl(Opcode.IF.code, params, results, end_label);
@@ -1457,18 +1528,7 @@ class SpcState(regAlloc: RegAlloc) {
 		if (target.merge_count == 0) {
 			if (Trace.compiler) OUT.puts("    merge_count=1").outln();
 			target.merge_count = 1;
-			target.merge_state = Arrays.range(state, 0, int.view(max));
-			for (i < top) {
-				var from = state[i], to = toMergeVal(from);
-				target.merge_state[i] = to;
-				if (from != to) resolver.addMove((i, to), (i, from));
-			}
-			for (i < vals) {
-				var f = (sp - vals + i), t = top + i;
-				var from = state[f], to = toMergeVal(from);
-				target.merge_state[t] = to;
-				resolver.addMove((t, to), (f, from));
-			}
+			target.merge_state = doFirstTransferAndGetMerge(target.val_stack_top, vals, resolver);
 		} else {
 			if (Trace.compiler) OUT.puts("    merge_count=2+").outln();
 			target.merge_count = 2;
@@ -1597,6 +1657,11 @@ class SpcState(regAlloc: RegAlloc) {
 	}
 	def grow(nlength: int) {
 		state = Arrays.grow(state, nlength);
+	}
+	def trace() {
+		OUT.put1("sp=%d |", sp);
+		for (i < sp) state[i].render(OUT, regAlloc.regConfig.regSet);
+		OUT.outln();
 	}
 }
 def toTag(vt: ValueType) -> ValueKind {

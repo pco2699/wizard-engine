@@ -138,9 +138,10 @@ class RegAlloc {
 	def copy() -> RegAlloc {
 		return RegAlloc.new(regConfig, this);
 	}
-	// Finds the allocated register of {kind} with the lowest score.
-	// Assumes that lower assignments are better and fewer assignments are better.
-	def findSpillCandidate(kind: ValueKind) -> Reg {
+	// Finds the allocated register of {kind} with the lowest score. The {addSpillCost}
+	// function takes {(score, reg, assign)} and should add the additional spill cost
+	// of the register {reg} with assignment {assign}.
+	def findSpillCandidate(kind: ValueKind, addSpillCost: (int, Reg, int) -> int) -> Reg {
 		var lowest = int.max, reg: Reg;
 		var p = regConfig.kindToPool[kind.tag];
 		var regs = pools[p].regs;
@@ -149,7 +150,7 @@ class RegAlloc {
 		for (i = 0; alloc != 0; (alloc = alloc >> 1, i++)) {
 			if (1 != (alloc & 1)) continue; // register is free
 			var candidate = regs[i];
-			var score = first[candidate.index];
+			var score = addSpillCost(0, candidate, first[candidate.index]);
 			if (score >= lowest) continue;  // cannot be lowest
 			var l = aliases[candidate.index];
 			while (true) {
@@ -158,7 +159,7 @@ class RegAlloc {
 					reg = candidate;
 					break;
 				}
-				score += 100000000 + l.head;
+				score = addSpillCost(score, candidate, l.head);
 				if (score >= lowest) break;
 				l = l.tail;
 			}
