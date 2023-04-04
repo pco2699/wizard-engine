@@ -515,7 +515,7 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		state.popArgsAndPushResults(sig);
 	}
 	def visit_DROP() {
-		drop();
+		dropN(1);
 	}
 	def visit_SELECT() {
 		emitSelect(1);
@@ -523,37 +523,71 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 	def visit_SELECT_T(val_types: Range<ValueTypeCode>) {
 		emitSelect(u32.!(val_types.length));
 	}
-	def emitSelect(count: u32) {
+	def emitSelect(valcount: u32) {
 		var sv = pop();
-		var base: u32 = state.sp - count*2;
+		var base: u32 = state.sp - valcount*2;
 		if (sv.isConst()) {
 			// XXX: select K* K* v => K* if all constants match
 			if (sv.const != 0) {
 				// select a* b* T => a*
-				for (i < count) drop();
+				dropN(valcount);
 			} else {
 				// select a* b* 0 => b*
-				for (i < count) {
+				for (i < valcount) {
 					var ti = base + i;
-					var fi = base + i + count;
+					var fi = ti + valcount;
 					var fv = state.state[fi];
 					unrefSlot(ti);
-					if (fv.inReg()) reassignReg(fv.reg, int.!(ti));
+					if (fv.inReg()) masm.regAlloc.reassign(fv.reg, int.!(fi), int.!(ti));
 					var tv = state.state[ti];
 					state.state[ti] = SpcVal(tv.kindFlagsAndTag(fv.flags & (IN_REG | IS_CONST)), fv.reg, fv.const);
 				}
 			}
 			return;
 		}
-		state.doSelectTrueTransferInPlace(count, resolver);
+		// Compute moves for the true branch (happens before compare).
+		for (i < valcount) {
+			var ti = base + i;
+			var fi = ti + valcount;
+			var fv = state.state[fi];
+			var tv = state.state[ti];
+			if ((fv.reg != NO_REG && fv.reg == tv.reg)
+				|| (fv.isConst() && tv.isConst() && (fv.const == tv.const))) {
+				// no move necessary on either side
+				state.state[fi] = tv;
+			} else if (tv.reg != NO_REG && masm.regAlloc.frequency(tv.reg) == 1) {
+				// can reuse tv.reg
+			} else {
+				var reg = tryAllocReg(tv.kind(), ti);
+				var prev_tv = tv;
+				if (reg != NO_REG) {
+					tv = SpcVal(tv.kindFlags(IN_REG), reg, 0);
+					resolver.addMove((ti, tv), (ti, prev_tv));
+				} else {
+					tv = SpcVal(tv.kindFlags(IS_STORED), reg, 0);
+					resolver.addMove((ti, tv), (ti, prev_tv));
+				}
+				tv = SpcVal(tv.flags | (prev_tv.flags & TAG_STORED), tv.reg, tv.const);
+				if (prev_tv.reg != NO_REG) unrefLater(prev_tv.reg, int.!(ti));  // XXX: can unref immediately?
+			}
+			state.state[ti] = tv;
+		}
+		resolver.emitMoves();
 		var label = masm.newLabel(it.pc);
 		var cond = MasmBrCond.I32_NONZERO;
 		if (sv.inReg()) masm.emit_br_r(sv.reg, cond, label);
 		else masm.emit_br_m(masm.slotAddr(state.sp), cond, label);
-		state.doSelectFalseTransferInPlace(count, resolver);
+		// Compute moves for the false branch.
+		for (i < valcount) {
+			var ti = base + i;
+			var fi = ti + valcount;
+			var fv = state.state[fi];
+			var tv = state.state[ti];
+			if (fv != tv) resolver.addMove((ti, tv), (fi, fv));
+		}
 		resolver.emitMoves();
 		masm.bindLabel(label);
-		state.sp = base + count;
+		dropN(valcount);
 	}
 	def visit_LOCAL_GET(index: u31) {
 		var lv = state.get(index);
@@ -797,12 +831,14 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 	}
 
 	def emit_call_runtime_op1(op: Opcode, arg1: u31, canTrap: bool) {
-		emit_call_runtime_op1n(op, arg1, op.sig.params.length, op.sig.results, canTrap);
+		var count = u32.!(op.sig.params.length);
+		emit_call_runtime_op1n(op, arg1, count, op.sig.results, canTrap);
 	}
 	def emit_call_runtime_op2(op: Opcode, arg1: u31, arg2: u31, canTrap: bool) {
-		emit_call_runtime_op2n(op, arg1, arg2, op.sig.params.length, op.sig.results, canTrap);
+		var count = u32.!(op.sig.params.length);
+		emit_call_runtime_op2n(op, arg1, arg2, count, op.sig.results, canTrap);
 	}
-	def emit_call_runtime_op1n(op: Opcode, arg1: u31, args: int, results: Array<ValueType>, canTrap: bool) {
+	def emit_call_runtime_op1n(op: Opcode, arg1: u31, args: u32, results: Array<ValueType>, canTrap: bool) {
 		state.emitKill(resolver);
 		emit_compute_vsp(regs.vsp, state.sp);
 		masm.emit_store_runtime_vsp(regs.vsp);
@@ -810,11 +846,11 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		masm.emit_mov_r_i(regs.runtime_arg_1, arg1);
 		masm.emit_call_runtime_op(op);
 		if (canTrap) emit_unwind_check();
-		for (i < args) drop();
+		dropN(args);
 		for (t in results) state.push(typeToKindFlags(t) | TAG_STORED | IS_STORED, NO_REG, 0);
 		emit_reload_regs();
 	}
-	def emit_call_runtime_op2n(op: Opcode, arg1: u31, arg2: u31, args: int, results: Array<ValueType>, canTrap: bool) {
+	def emit_call_runtime_op2n(op: Opcode, arg1: u31, arg2: u31, args: u32, results: Array<ValueType>, canTrap: bool) {
 		state.emitKill(resolver);
 		emit_compute_vsp(regs.vsp, state.sp);
 		masm.emit_store_runtime_vsp(regs.vsp);
@@ -823,7 +859,7 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		masm.emit_mov_r_i(regs.runtime_arg_2, arg2);
 		masm.emit_call_runtime_op(op);
 		if (canTrap) emit_unwind_check();
-		for (i < args) drop();
+		dropN(args);
 		for (t in results) state.push(typeToKindFlags(t) | TAG_STORED | IS_STORED, NO_REG, 0);
 		emit_reload_regs();
 	}
@@ -1092,6 +1128,9 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		if (reg == NO_REG) return findAndSpillReg(kind, int.!(slot));
 		return reg;
 	}
+	def tryAllocReg(kind: ValueKind, slot: u32) -> Reg {
+		return masm.regAlloc.alloc(kind, int.!(slot));
+	}
 	def allocTmp(kind: ValueKind) -> Reg {
 		var reg = masm.regAlloc.alloc(kind, TMP_SLOT);
 		if (reg == NO_REG) reg = findAndSpillReg(kind, TMP_SLOT);
@@ -1142,6 +1181,7 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		return masm.regAlloc.alloc(kind, slot);
 	}
 	def addSpillCost(score: int, reg: Reg, slot: int) -> int {
+		if (slot >= state.sp) return 100000000 + score;       // tmp slot?
 		if (!state.state[slot].isStored()) score += 100;      // will generate a spill
 		if (slot < 10 && slot < func.num_locals) score += 10; // penalize first 10 locals
 		if (int.!(state.sp) - slot < 4) score += 20;          // penalize top 4 operand slots
@@ -1162,10 +1202,12 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		if (sv.inReg()) unrefLater(sv.reg, int.!(state.sp));
 		return sv;
 	}
-	// Pop and drop the top of the stack.
-	def drop() {
-		var sv = state.pop();
-		if (sv.reg != NO_REG) masm.regAlloc.unassign(sv.reg, int.!(state.sp));
+	// Pop and drop {count} items from the top of the stack.
+	def dropN(count: u32) {
+		for (i < count) {
+			var sv = state.pop();
+			if (sv.reg != NO_REG) masm.regAlloc.unassign(sv.reg, int.!(state.sp));
+		}
 	}
 	// Pop the top of the stack into a register of the appropriate kind.
 	def popReg() -> SpcVal {
@@ -1290,6 +1332,9 @@ type SpcVal(flags: byte, reg: Reg, const: int) #unboxed {
 	def withoutReg() -> SpcVal {
 		return SpcVal(flags & ~IN_REG, NO_REG, const);
 	}
+	def notConst() -> SpcVal {
+		return SpcVal(flags & ~IS_CONST, reg, 0);
+	}
 	def render(buf: StringBuilder, regSet: RegSet) -> StringBuilder {
 		match (kind()) {
 			I32 => buf.puts("i");
@@ -1407,40 +1452,17 @@ class SpcState(regAlloc: RegAlloc) {
 	}
 	// Prepare for the first transfer to a label by revoking registers/constants and emitting
 	// any necessary moves. Here, {L} refers to locals, {Z} to the frozen portion of the operand
-	// stack, and {F} to the arguments to the block/loop. The current state is *not* updated, but
-	// the new target merge state is returned.
-	//   | L | Z | T | ... | F |
-	//     |                 |
-	//     |       +---------+
+	// stack, {V} to the {valcount} number of arguments to the label, and {P} to the {popcount} number
+	// of values that will be popped. Neither the current state nor the register allocation state is
+	// updated; the new target merge state is returned.
+	//   | L | Z | P | V |
+	//     |           |
+	//     |       +---+
 	//     |       |
 	//     v       v
-	//   |!L!| Z |!F!|
+	//   |!L!| Z |!V!|
 	def doFirstTransferAndGetMerge(valcount: u32, popcount: u32, resolver: SpcMoveResolver) -> Array<SpcVal> {
 		return SpcMerger.new(state, num_locals, sp, regAlloc, resolver).createMerge(valcount, popcount);
-	}
-	// Prepare the current state for the transfer of a true select by revoking registers/constants and emitting
-	// any necessary moves. Here, {L} refers to locals, {Z} to the frozen portion of the operand
-	// stack, and {F} to the arguments to the loop.
-	//   | L | Z | A | B |
-	//             |
-	//             +
-	//             |
-	//             v
-	//   | L | Z |!F!|
-	def doSelectTrueTransferInPlace(valcount: u32, resolver: SpcMoveResolver) {
-		return SpcMerger.new(state, num_locals, sp, regAlloc, resolver).mergeRange(sp - valcount - valcount, sp - valcount);
-	}
-	// Prepare the current state for the transfer of a false select by revoking registers/constants and emitting
-	// any necessary moves. Here, {L} refers to locals, {Z} to the frozen portion of the operand
-	// stack, and {F} to the arguments to the loop.
-	//   | L | Z | A | B |
-	//                 |
-	//             +---+
-	//             |
-	//             v
-	//   | L | Z |!F!|
-	def doSelectFalseTransferInPlace(valcount: u32, resolver: SpcMoveResolver) {
-		return SpcMerger.new(state, num_locals, sp, regAlloc, resolver).mergeRange(sp - valcount, sp);
 	}
 	def pushIf(params: Array<ValueType>, results: Array<ValueType>, else_label: MasmLabel, end_label: MasmLabel) -> SpcControl {
 		var ctl = pushControl(Opcode.IF.code, params, results, end_label);
@@ -1678,6 +1700,7 @@ class SpcMerger(state: Array<SpcVal>, num_locals: u16, sp: u32, regAlloc: RegAll
 			} else if (!from.isStored()) {
 				spill(ti, fi);
 			}
+			merge[ti] = merge[ti].notConst();
 		}
 		// process locals
 		for (fi: u32 < num_locals) {
@@ -1692,10 +1715,9 @@ class SpcMerger(state: Array<SpcVal>, num_locals: u16, sp: u32, regAlloc: RegAll
 			} else if (!from.isStored()) {
 				spill(ti, fi);
 			}
+			merge[ti] = merge[ti].notConst();
 		}
 		return merge;
-	}
-	def mergeRange(start: u32, end: u32) {
 	}
 	def spillLocal(index: int) {
 		spill(u32.!(index), u32.!(index));
