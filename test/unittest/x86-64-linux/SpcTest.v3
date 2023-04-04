@@ -82,7 +82,7 @@ class SpcTester(t: Tester) {
 	}
 	def assertAssignments(r: Reg, expected: Array<int>) {
 		var g = Vector<int>.new();
-		regAlloc.forEachAssignment(r, gather(g, _, _));
+		regAlloc.forEachAssignment(r, g.put);
 		if (expected.length != g.length) return t.fail2("expected %d assignments, got %d", expected.length, g.length);
 		for (e in expected) {
 			var found = false;
@@ -91,9 +91,6 @@ class SpcTester(t: Tester) {
 			}
 			if (!found) return t.fail1("expected %s in assignments, but not found", regSet.getName(r));
 		}
-	}
-	def gather(g: Vector<int>, r: Reg, assignment: int) {
-		g.put(assignment);
 	}
 }
 

@@ -94,6 +94,7 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		// Initialize parameters, locals, and first control stack entry.
 		var end_label = masm.newLabel(func.cur_bytecode.length);
 		state.reset(sig, end_label);
+		state.num_locals = func.num_locals;
 
 		// Visit all local declarations.
 		it.dispatchLocalDecls(this);
@@ -1225,13 +1226,12 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 	def spillReg(reg: Reg) {
 		masm.regAlloc.forEachAssignment(reg, emitSpill); // XXX: iterate assignment list directly?
 	}
-	def emitSpill(reg: Reg, slot: int) {
-		if (slot == TMP_SLOT) return bailout(Strings.format1("attempt to spill %s, assigned as temp", config.regSet.getName(reg)));
+	def emitSpill(slot: int) {
+		if (slot == TMP_SLOT) return bailout("attempt to spill temp");
 		var sv = state.state[slot];
-		if (sv.reg != reg) bailout(Strings.format2("spill mismatch for %s, assignment=%d", config.regSet.getName(reg), slot));
 		if (sv.isConst()) return void(state.state[slot] = sv.withoutReg());
 		if (sv.isStored()) return void(state.state[slot] = sv.withoutReg());
-		masm.emit_mov_s_r(sv.kind(), u32.!(slot), reg);
+		masm.emit_mov_s_r(sv.kind(), u32.!(slot), sv.reg);
 		state.state[slot] = SpcVal((sv.flags | IS_STORED) & ~IN_REG, NO_REG, 0);
 	}
 	def setUnreachable() {
@@ -1398,13 +1398,16 @@ class SpcState(regAlloc: RegAlloc) {
 	def prepareLoop(resolver: SpcMoveResolver) {
 		var target = ctl_stack.peek();
 		target.merge_count = 1;
-		var val_count = u32.view(target.params.length);
-		target.merge_state = doFirstTransferAndGetMerge(sp - val_count, val_count, resolver);
+		var valcount = u32.view(target.params.length);
+		var popcount = 0u;
+		target.merge_state = doFirstTransferAndGetMerge(valcount, popcount, resolver);
+		resolver.emitMoves();
+		if (Trace.compiler) trace0("    loop merge = ", target.merge_state, target.merge_state.length);
 		resetTo(sp, target.merge_state);
 	}
 	// Prepare for the first transfer to a label by revoking registers/constants and emitting
 	// any necessary moves. Here, {L} refers to locals, {Z} to the frozen portion of the operand
-	// stack, and {F} to the arguments to the loop. The current state is *not* updated, but
+	// stack, and {F} to the arguments to the block/loop. The current state is *not* updated, but
 	// the new target merge state is returned.
 	//   | L | Z | T | ... | F |
 	//     |                 |
@@ -1412,20 +1415,8 @@ class SpcState(regAlloc: RegAlloc) {
 	//     |       |
 	//     v       v
 	//   |!L!| Z |!F!|
-	def doFirstTransferAndGetMerge(sp: u32, val_count: u32, resolver: SpcMoveResolver) -> Array<SpcVal> {
-		var merge = Arrays.range(state, 0, int.view(sp + val_count));
-//			for (i < top) {
-//				var from = state[i], to = toMergeVal(from);
-//				target.merge_state[i] = to;
-//				if (from != to) resolver.addMove((i, to), (i, from));
-//			}
-//			for (i < vals) {
-//				var f = (sp - vals + i), t = top + i;
-//				var from = state[f], to = toMergeVal(from);
-//				target.merge_state[t] = to;
-//				resolver.addMove((t, to), (f, from));
-//			}
-		return merge;
+	def doFirstTransferAndGetMerge(valcount: u32, popcount: u32, resolver: SpcMoveResolver) -> Array<SpcVal> {
+		return SpcMerger.new(state, num_locals, sp, regAlloc, resolver).createMerge(valcount, popcount);
 	}
 	// Prepare the current state for the transfer of a true select by revoking registers/constants and emitting
 	// any necessary moves. Here, {L} refers to locals, {Z} to the frozen portion of the operand
@@ -1436,8 +1427,8 @@ class SpcState(regAlloc: RegAlloc) {
 	//             |
 	//             v
 	//   | L | Z |!F!|
-	def doSelectTrueTransferInPlace(val_count: u32, resolver: SpcMoveResolver) {
-//		state.prepareRangeForMerge(base, base + count, resolver);
+	def doSelectTrueTransferInPlace(valcount: u32, resolver: SpcMoveResolver) {
+		return SpcMerger.new(state, num_locals, sp, regAlloc, resolver).mergeRange(sp - valcount - valcount, sp - valcount);
 	}
 	// Prepare the current state for the transfer of a false select by revoking registers/constants and emitting
 	// any necessary moves. Here, {L} refers to locals, {Z} to the frozen portion of the operand
@@ -1448,39 +1439,8 @@ class SpcState(regAlloc: RegAlloc) {
 	//             |
 	//             v
 	//   | L | Z |!F!|
-	def doSelectFalseTransferInPlace(val_count: u32, resolver: SpcMoveResolver) {
-//		for (i = base; i < base + count; i++) {
-//			var fv = state.state[i + count];
-//			resolver.addMove((i, state.state[i]), (i + count, fv));
-//			unrefSlot(i + count);
-//		}
-	}
-	def prepareRangeForMerge(start: u32, end: u32, resolver: SpcMoveResolver) {
-		for (i = start; i < end; i++) { // XXX: iterate top of stack first?
-			var from = state[i];
-			if (from.reg != NO_REG && regAlloc.frequency(from.reg) > 1) {
-				// A register used in the range can only be used once. Spill other uses.
-				regAlloc.forEachAssignment(from.reg, spillIfNotEqual(_, _, i, resolver));
-			}
-			var to = toMergeVal(from);
-			if (from != to) {
-				state[i] = to;
-				resolver.addMove((i, to), (i, from));
-			}
-		}
-		resolver.emitMoves();
-	}
-	def spillIfNotEqual(reg: Reg, assign: int, slot: u32, resolver: SpcMoveResolver) {
-		if (assign == slot) return;
-		var from = state[slot], to: SpcVal;
-		if (from.isStored()) {
-			// No need to spill, just revoke the register.
-			to = from.withoutReg();
-		} else {
-			to = SpcVal(from.kindFlagsAndTag(IS_STORED), NO_REG, 0);
-			resolver.addMove((slot, to), (slot, from));
-		}
-		state[slot] = to;
+	def doSelectFalseTransferInPlace(valcount: u32, resolver: SpcMoveResolver) {
+		return SpcMerger.new(state, num_locals, sp, regAlloc, resolver).mergeRange(sp - valcount, sp);
 	}
 	def pushIf(params: Array<ValueType>, results: Array<ValueType>, else_label: MasmLabel, end_label: MasmLabel) -> SpcControl {
 		var ctl = pushControl(Opcode.IF.code, params, results, end_label);
@@ -1522,13 +1482,15 @@ class SpcState(regAlloc: RegAlloc) {
 			if (Trace.compiler) OUT.puts("    xfer not reachable").outln();
 			return; // do nothing
 		}
-		var vals = u32.view(if(target.opcode == Opcode.LOOP.code, target.params, target.results).length);
-		var top = target.val_stack_top, max = top + vals;
-		if (Trace.compiler) OUT.put2("    xfer -> sp=%d vals=%d", top, vals).outln();
+		var valcount = u32.view(if(target.opcode == Opcode.LOOP.code, target.params, target.results).length);
+		var top = target.val_stack_top, max = top + valcount;
+		if (Trace.compiler) OUT.put2("    xfer -> sp=%d vals=%d", top, valcount).outln();
 		if (target.merge_count == 0) {
 			if (Trace.compiler) OUT.puts("    merge_count=1").outln();
 			target.merge_count = 1;
-			target.merge_state = doFirstTransferAndGetMerge(target.val_stack_top, vals, resolver);
+			var popcount = sp - valcount - target.val_stack_top;
+			target.merge_state = doFirstTransferAndGetMerge(valcount, popcount, resolver);
+			if (Trace.compiler) trace0("    merge = ", target.merge_state, target.merge_state.length);
 		} else {
 			if (Trace.compiler) OUT.puts("    merge_count=2+").outln();
 			target.merge_count = 2;
@@ -1537,8 +1499,8 @@ class SpcState(regAlloc: RegAlloc) {
 				var from = state[i], to = target.merge_state[i];
 				if (from != to) resolver.addMove((i, to), (i, from));
 			}
-			for (i < vals) {
-				var f = (sp - vals + i), t = top + i;
+			for (i < valcount) {
+				var f = (sp - valcount + i), t = top + i;
 				var from = state[f], to = target.merge_state[t];
 				// TODO: write tag based on mismatch on this stack's target slot
 				resolver.addMove((t, to), (f, from));
@@ -1659,8 +1621,12 @@ class SpcState(regAlloc: RegAlloc) {
 		state = Arrays.grow(state, nlength);
 	}
 	def trace() {
+		trace0("", state, int.!(sp));
+	}
+	def trace0(str: string, vals: Array<SpcVal>, sp: int) {
+		OUT.puts(str);
 		OUT.put1("sp=%d |", sp);
-		for (i < sp) state[i].render(OUT, regAlloc.regConfig.regSet);
+		for (i < sp) vals[i].render(OUT, regAlloc.regConfig.regSet);
 		OUT.outln();
 	}
 }
@@ -1682,6 +1648,68 @@ def typeToKindFlags(vt: ValueType) -> byte {
 		F64 => return KIND_F64;
 		V128 => return KIND_V128;
 		_ => return KIND_REF;
+	}
+}
+class SpcMerger(state: Array<SpcVal>, num_locals: u16, sp: u32, regAlloc: RegAlloc, resolver: SpcMoveResolver) {
+	var valcount: u32;
+	var popcount: u32;
+	var merge: Array<SpcVal>;
+
+	def createMerge(valcount: u32, popcount: u32) -> Array<SpcVal> {
+		this.valcount = valcount;
+		this.popcount = popcount;
+		merge = Arrays.range(state, 0, int.view(sp - popcount));
+		// process transfer slots
+		for (i < valcount) {
+			var fi = sp - i - 1, ti = fi - popcount;
+			var from = state[fi], to = merge[ti];
+			if (from.reg != NO_REG) {
+				// A register used in the range can only be used once. Spill uses in L and F.
+				if (to.reg == from.reg && regAlloc.frequency(from.reg) > 1) {
+					if (Trace.compiler) {
+						OUT.put2("      shootdown slot=%d r=%s", fi, regAlloc.regConfig.regSet.getName(from.reg))
+						.put2(" [%d...%d)", 0, num_locals)
+						.put2(" [%d...%d)", int.!(sp - valcount), int.!(fi))
+						.outln();
+					}
+					regAlloc.forEachAssignmentInRange(from.reg, 0, num_locals, spillLocal);
+					regAlloc.forEachAssignmentInRange(from.reg, int.!(sp - valcount), int.!(fi), spillTransfer);
+				}
+			} else if (!from.isStored()) {
+				spill(ti, fi);
+			}
+		}
+		// process locals
+		for (fi: u32 < num_locals) {
+			var ti = fi;
+			var from = state[fi], to = merge[ti];
+			if (from.reg != NO_REG) {
+				// A register used in the range can only be used once. Spill uses in L and F.
+				if (to.reg == from.reg && regAlloc.frequency(from.reg) > 1) {
+					regAlloc.forEachAssignmentInRange(from.reg, int.!(fi + 1), num_locals, spillLocal);
+					regAlloc.forEachAssignmentInRange(from.reg, int.!(sp - valcount), int.!(sp), spillTransfer);
+				}
+			} else if (!from.isStored()) {
+				spill(ti, fi);
+			}
+		}
+		return merge;
+	}
+	def mergeRange(start: u32, end: u32) {
+	}
+	def spillLocal(index: int) {
+		spill(u32.!(index), u32.!(index));
+	}
+	def spillTransfer(index: int) {
+		spill(u32.!(index) - popcount, u32.!(index));
+	}
+	def spill(ti: u32, fi: u32) {
+		if (Trace.compiler) OUT.put2("      spill %d <- %d", ti, fi).outln();
+		var from = state[fi];
+		var flags = merge[ti].flags & ~(IS_CONST | IN_REG);
+		var to = SpcVal(flags | IS_STORED, NO_REG, 0);
+		resolver.addMove((ti, to), (fi, from));
+		merge[ti] = to;
 	}
 }
 

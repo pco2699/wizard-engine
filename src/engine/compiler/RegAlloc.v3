@@ -180,11 +180,21 @@ class RegAlloc {
 		}
 	}
 	// Calls {func} for every assignment of {reg}.
-	def forEachAssignment<T>(reg: Reg, func: (Reg, int) -> T) {
+	def forEachAssignment<T>(reg: Reg, func: int -> T) {
 		var assignment = first[reg.index];
 		if (assignment >= 0) {
-			func(reg, assignment);
-			for (l = aliases[reg.index]; l != null; l = l.tail) func(reg, l.head);
+			func(assignment);
+			for (l = aliases[reg.index]; l != null; l = l.tail) func(l.head);
+		}
+	}
+	def forEachAssignmentInRange<T>(reg: Reg, min: int, max: int, func: int -> T) {
+		var assignment = first[reg.index];
+		if (assignment >= 0) {
+			if (assignment >= min && assignment < max) func(assignment);
+			for (l = aliases[reg.index]; l != null; l = l.tail) {
+				var next = l.head;
+				if (next >= min && next < max) func(next);
+			}
 		}
 	}
 	def render(buf: StringBuilder) -> StringBuilder {
