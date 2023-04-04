@@ -1506,15 +1506,13 @@ class SpcState(regAlloc: RegAlloc) {
 		}
 		var valcount = u32.view(if(target.opcode == Opcode.LOOP.code, target.params, target.results).length);
 		var top = target.val_stack_top, max = top + valcount;
-		if (Trace.compiler) OUT.put2("    xfer -> sp=%d vals=%d", top, valcount).outln();
+		if (Trace.compiler) OUT.put3("    xfer -> sp=%d vals=%d merges=%d", top, valcount, target.merge_count).outln();
 		if (target.merge_count == 0) {
-			if (Trace.compiler) OUT.puts("    merge_count=1").outln();
 			target.merge_count = 1;
 			var popcount = sp - valcount - target.val_stack_top;
 			target.merge_state = doFirstTransferAndGetMerge(valcount, popcount, resolver);
 			if (Trace.compiler) trace0("    merge = ", target.merge_state, target.merge_state.length);
 		} else {
-			if (Trace.compiler) OUT.puts("    merge_count=2+").outln();
 			target.merge_count = 2;
 			// XXX: allow matching constants in merges
 			for (i < top) {
@@ -1685,53 +1683,50 @@ class SpcMerger(state: Array<SpcVal>, num_locals: u16, sp: u32, regAlloc: RegAll
 		for (i < valcount) {
 			var fi = sp - i - 1, ti = fi - popcount;
 			var from = state[fi], to = merge[ti];
-			if (from.reg != NO_REG) {
-				// A register used in the range can only be used once. Spill uses in L and F.
-				if (to.reg == from.reg && regAlloc.frequency(from.reg) > 1) {
-					if (Trace.compiler) {
-						OUT.put2("      shootdown slot=%d r=%s", fi, regAlloc.regConfig.regSet.getName(from.reg))
-						.put2(" [%d...%d)", 0, num_locals)
-						.put2(" [%d...%d)", int.!(sp - valcount), int.!(fi))
-						.outln();
-					}
-					regAlloc.forEachAssignmentInRange(from.reg, 0, num_locals, spillLocal);
-					regAlloc.forEachAssignmentInRange(from.reg, int.!(sp - valcount), int.!(fi), spillTransfer);
+			if (from.reg != NO_REG && to.reg == from.reg) {
+				// A register used in the range can only be used once. Spill uses in L and V.
+				if (regAlloc.frequency(from.reg) > 1) {
+					revokeRegFromRange(from.reg, fi, 0, num_locals);
+					revokeRegFromRange(from.reg, fi, int.!(sp - valcount), int.!(fi));
 				}
-			} else if (!from.isStored()) {
-				spill(ti, fi);
+				to = SpcVal(to.kindFlagsAndTag(IN_REG), from.reg, 0);
+			} else {
+				to = SpcVal(to.kindFlagsAndTag(IS_STORED), NO_REG, 0);
+				resolver.addMove((ti, to), (fi, from));
 			}
-			merge[ti] = merge[ti].notConst();
+			merge[ti] = to;
 		}
 		// process locals
 		for (fi: u32 < num_locals) {
 			var ti = fi;
 			var from = state[fi], to = merge[ti];
-			if (from.reg != NO_REG) {
-				// A register used in the range can only be used once. Spill uses in L and F.
-				if (to.reg == from.reg && regAlloc.frequency(from.reg) > 1) {
-					regAlloc.forEachAssignmentInRange(from.reg, int.!(fi + 1), num_locals, spillLocal);
-					regAlloc.forEachAssignmentInRange(from.reg, int.!(sp - valcount), int.!(sp), spillTransfer);
+			if (from.reg != NO_REG && to.reg == from.reg) {
+				// A register used in the range can only be used once. Spill uses in L and V.
+				if (regAlloc.frequency(from.reg) > 1) {
+					revokeRegFromRange(from.reg, fi, int.!(fi + 1), num_locals);
+					revokeRegFromRange(from.reg, fi, int.!(sp - valcount), int.!(sp));
 				}
-			} else if (!from.isStored()) {
-				spill(ti, fi);
+				to = SpcVal(to.kindFlagsAndTag(IN_REG), from.reg, 0);
+			} else {
+				to = SpcVal(to.kindFlagsAndTag(IS_STORED), NO_REG, 0);
+				resolver.addMove((ti, to), (fi, from));
 			}
-			merge[ti] = merge[ti].notConst();
+			merge[ti] = to;
 		}
 		return merge;
 	}
-	def spillLocal(index: int) {
-		spill(u32.!(index), u32.!(index));
+	def revokeRegFromRange(reg: Reg, slot: u32, start: int, end: int) {
+		if (Trace.compiler) {
+			OUT.put2("      revoke fi=%d r=%s", slot, regAlloc.regConfig.regSet.getName(reg))
+				.put2(" [%d...%d)", start, end)
+				.outln();
+		}
+		regAlloc.forEachAssignmentInRange(reg, start, end, revoke);
 	}
-	def spillTransfer(index: int) {
-		spill(u32.!(index) - popcount, u32.!(index));
-	}
-	def spill(ti: u32, fi: u32) {
-		if (Trace.compiler) OUT.put2("      spill %d <- %d", ti, fi).outln();
-		var from = state[fi];
-		var flags = merge[ti].flags & ~(IS_CONST | IN_REG);
-		var to = SpcVal(flags | IS_STORED, NO_REG, 0);
-		resolver.addMove((ti, to), (fi, from));
-		merge[ti] = to;
+	def revoke(index: int) {
+		if (index >= (sp - valcount)) index -= int.!(popcount);
+		if (Trace.compiler) OUT.put1("      revoke %d", index).outln();
+		merge[index] = SpcVal(merge[index].flags & ~IN_REG, NO_REG, 0);
 	}
 }
 
