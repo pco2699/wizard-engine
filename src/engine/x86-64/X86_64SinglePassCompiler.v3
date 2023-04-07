@@ -137,6 +137,7 @@ class X86_64SinglePassCompiler extends SinglePassCompiler {
 	private def visitIDivRem(dst: Reg, emit: X86_64Gpr -> void) {
 		var b = popFixedReg(X86_64Regs2.RCX); // XXX: use any reg except RAX or RDX
 		var a = popFixedReg(X86_64Regs2.RAX);
+		spillReg(X86_64Regs2.RAX);
 		spillReg(X86_64Regs2.RDX);
 		emit(G(b.reg));
 		masm.regAlloc.assign(dst, int.!(state.sp));
@@ -401,7 +402,7 @@ class X86_64SinglePassCompiler extends SinglePassCompiler {
 	def visit_I64_TRUNC_SAT_F64_U() { visitITruncF(Opcode.I64_TRUNC_SAT_F64_U); }
 
 	private def visitFConvertI32S(kind: ValueKind, emit_cvt: (X86_64Xmmr, X86_64Gpr) -> X86_64Assembler) {
-		var sv = popReg(), r1 = G(sv.reg);
+		var sv = popReg(), r1 = G(sv.reg); // TODO: register killed
 		var d = allocRegTos(kind);
 		asm.q.shl_r_i(r1, 32);
 		asm.q.sar_r_i(r1, 32); // sign-extend

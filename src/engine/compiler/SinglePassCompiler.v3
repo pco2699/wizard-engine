@@ -1213,7 +1213,8 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 	def popReg() -> SpcVal {
 		var sv = state.pop();
 		if (sv.inReg()) {
-			unrefLater(sv.reg, int.!(state.sp));
+			masm.regAlloc.reassign(sv.reg, int.!(state.sp), TMP_SLOT);
+			unrefLater(sv.reg, TMP_SLOT);
 			return sv;
 		}
 		var kind = sv.kind();
@@ -1227,7 +1228,8 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 	def popFixedReg(reg: Reg) -> SpcVal {
 		var sv = state.pop(), slot = int.!(state.sp);
 		if (sv.reg == reg) {
-			unrefLater(sv.reg, slot);
+			masm.regAlloc.reassign(sv.reg, slot, TMP_SLOT);
+			unrefLater(sv.reg, TMP_SLOT);
 			return sv;
 		}
 		spillReg(reg);
@@ -1269,7 +1271,7 @@ class SinglePassCompiler(masm: MacroAssembler, extensions: Extension.set, limits
 		masm.regAlloc.forEachAssignment(reg, emitSpill); // XXX: iterate assignment list directly?
 	}
 	def emitSpill(slot: int) {
-		if (slot == TMP_SLOT) return bailout("attempt to spill temp");
+		if (slot == TMP_SLOT) return;
 		var sv = state.state[slot];
 		if (sv.isConst()) return void(state.state[slot] = sv.withoutReg());
 		if (sv.isStored()) return void(state.state[slot] = sv.withoutReg());
