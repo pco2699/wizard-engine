@@ -320,8 +320,10 @@ class X86_64SinglePassCompiler extends SinglePassCompiler {
 
 	private def visitITruncF(opcode: Opcode) {
 		var x1 = popReg();
+		spillReg(x1.reg); // XXX: macro assembler routine overwrites x1
+		var xkind = if(opcode.sig.params[0] == ValueType.F32, ValueKind.F32, ValueKind.F64);
 		var dkind = if(opcode.sig.results[0] == ValueType.I32, ValueKind.I32, ValueKind.I64);
-		var xscratch = allocTmp(if(opcode.sig.params[0] == ValueType.F32, ValueKind.F32, ValueKind.F64));
+		var xscratch = allocTmp(xkind);
 		var d = allocRegTos(dkind);
 		mmasm.emit_i_trunc_f(opcode, G(d), X(x1.reg), X(xscratch));
 		state.push(SpcConsts.kindToFlags(dkind) | IN_REG, d, 0);
