@@ -21,8 +21,8 @@ class X86_64MacroAssembler extends MacroAssembler {
 	var jump_tables: Vector<(int, Array<X86_64Label>)>;
 	var offsets: V3Offsets;
 
-	new(w, regAlloc: RegAlloc) super(Target.tagging, regAlloc) {
-		scratch = G(regAlloc.regConfig.regs.scratch);
+	new(w, regConfig: RegConfig) super(Target.tagging, regConfig) {
+		scratch = G(regConfig.regs.scratch);
 	}
 
 	def curCodeBytes() -> u64 {

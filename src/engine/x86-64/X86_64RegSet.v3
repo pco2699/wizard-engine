@@ -95,26 +95,26 @@ component X86_64Regs2 {
 		config.func_decl_offset = frame.FUNC_DECL.disp;
 		config.mem_offset = frame.MEM0_BASE.disp;
 
-		// XXX: reorganize the integer register pool for singlepass compiler
-		config.numRegPools = 2;
-		for (i < config.regToPool.length) config.regToPool[i] = -1;
+		var poolMap = PoolMap.new(SET, 2);
+		for (i < poolMap.regToPool.length) poolMap.regToPool[i] = -1;
 
 		for (i < ints.length) {
 			var r = ints[i];
-			config.regToPool[r.0.index] = 0;
+			poolMap.regToPool[r.0.index] = 0;
 		}
 		for (i < floats.length) {
 			var r = floats[i];
-			config.regToPool[r.index] = 1;
+			poolMap.regToPool[r.index] = 1;
 		}
 
-		config.kindToPool[ValueKind.I32.tag] = 0;
-		config.kindToPool[ValueKind.I64.tag] = 0;
-		config.kindToPool[ValueKind.F32.tag] = 1;
-		config.kindToPool[ValueKind.F64.tag] = 1;
-		config.kindToPool[ValueKind.V128.tag] = 1;
-		config.kindToPool[ValueKind.REF.tag] = 0;
+		poolMap.kindToPool[ValueKind.I32.tag] = 0;
+		poolMap.kindToPool[ValueKind.I64.tag] = 0;
+		poolMap.kindToPool[ValueKind.F32.tag] = 1;
+		poolMap.kindToPool[ValueKind.F64.tag] = 1;
+		poolMap.kindToPool[ValueKind.V128.tag] = 1;
+		poolMap.kindToPool[ValueKind.REF.tag] = 0;
 
+		config.poolMap = poolMap;
 		return config;
 	}
 
@@ -122,7 +122,6 @@ component X86_64Regs2 {
 	def toXmmr(reg: Reg) -> X86_64Xmmr { return XMMS[reg.index]; }
 
 	def buildSpcAlloc() -> RegAlloc {
-		var regAlloc = RegAlloc.new(CONFIG, null);
 		var intOrder = Vector<Reg>.new().resize(ints.length);
 		var max = int.min;
 		for (i < ints.length) {
@@ -132,18 +131,18 @@ component X86_64Regs2 {
 			if (r.1 > max) max = r.1;
 		}
 		intOrder.resize(max);
-		regAlloc.setPool(0, RegPool32.new(intOrder.extract()));
-		var floatOrder = [XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7, XMM8, XMM9, XMM10, XMM11, XMM12, XMM13, XMM14];
-		regAlloc.setPool(1, RegPool32.new(floatOrder));
-		return regAlloc;
+		var pools = [
+			RegPool32.new(intOrder.extract()),
+			RegPool32.new([XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7, XMM8, XMM9, XMM10, XMM11, XMM12, XMM13, XMM14])
+		];
+		return RegAlloc.new(CONFIG.poolMap, pools, null);
 	}
 	def buildIntAlloc() -> RegAlloc {
-		var regAlloc = RegAlloc.new(CONFIG, null);
-		var intOrder = [RCX, RDX, R8, R9];
-		regAlloc.setPool(0, RegPool32.new(intOrder));
-		var floatOrder = [XMM2, XMM3, XMM4, XMM5, XMM6, XMM7, XMM8, XMM9, XMM10, XMM11, XMM12, XMM13, XMM14];
-		regAlloc.setPool(1, RegPool32.new(floatOrder));
-		return regAlloc;
+		var pools = [
+			RegPool32.new([RCX, RDX, R8, R9]),
+			RegPool32.new([XMM2, XMM3, XMM4, XMM5, XMM6, XMM7, XMM8, XMM9, XMM10, XMM11, XMM12, XMM13, XMM14])
+		];
+		return RegAlloc.new(CONFIG.poolMap, pools, null);
 	}
 }
 

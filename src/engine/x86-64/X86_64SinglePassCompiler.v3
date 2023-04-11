@@ -27,11 +27,11 @@ def KIND_ABS = SpcConsts.KIND_ABS;
 // Implements the target-specific parts of the single-pass compiler for X86-64.
 class X86_64SinglePassCompiler extends SinglePassCompiler {
 	def w = DataWriter.new();
-	def mmasm = X86_64MacroAssembler.new(w, X86_64Regs2.SPC_ALLOC.copy());
+	def mmasm = X86_64MacroAssembler.new(w, X86_64Regs2.CONFIG);
 	def asm = mmasm.asm;
 
 	new(extensions: Extension.set, limits: Limits, config: RegConfig, err: ErrorGen)
-		super(mmasm, extensions, limits, err) {
+		super(mmasm, X86_64Regs2.SPC_ALLOC.copy(), extensions, limits, err) {
 	}
 
 	private def visitCompareI(asm: X86_64Assembler, cond: X86_64Cond) -> bool {
@@ -140,7 +140,7 @@ class X86_64SinglePassCompiler extends SinglePassCompiler {
 		spillReg(X86_64Regs2.RAX);
 		spillReg(X86_64Regs2.RDX);
 		emit(G(b.reg));
-		masm.regAlloc.assign(dst, int.!(state.sp));
+		regAlloc.assign(dst, int.!(state.sp));
 		state.push(a.kindFlagsAndTag(IN_REG), dst, 0);
 	}
 	def visit_I32_DIV_S() { visitIDivRem(X86_64Regs2.RAX, mmasm.emit_i32_div_s); } // XXX: fold potentially-trapping div/rem
@@ -666,7 +666,7 @@ var tierupCompileObject: ExecutionStrategy;
 component X86_64Spc {
 	// Generate the SPC entry stub.
 	def genEntryStub(w: DataWriter) {
-		var masm = X86_64MacroAssembler.new(w, X86_64Regs2.SPC_ALLOC.copy());
+		var masm = X86_64MacroAssembler.new(w, X86_64Regs2.CONFIG);
 		var asm = X86_64Assembler.!(masm.asm);
 		var c = X86_64Regs2.CONFIG;
 		var func_arg = G(c.regs.func_arg);
@@ -695,7 +695,7 @@ component X86_64Spc {
 		}
 	}
 	def genLazyCompileStub(w: DataWriter) {
-		var masm = X86_64MacroAssembler.new(w, X86_64Regs2.SPC_ALLOC.copy());
+		var masm = X86_64MacroAssembler.new(w, X86_64Regs2.CONFIG);
 		var asm = X86_64Assembler.!(masm.asm);
 		var c = X86_64Regs2.CONFIG;
 		var func_arg = G(c.regs.func_arg);
@@ -737,7 +737,7 @@ component X86_64Spc {
 		}
 	}
 	def genTierupCompileStub(w: DataWriter, ic: X86_64InterpreterCode) {
-		var masm = X86_64MacroAssembler.new(w, X86_64Regs2.SPC_ALLOC.copy());
+		var masm = X86_64MacroAssembler.new(w, X86_64Regs2.CONFIG);
 		var asm = X86_64Assembler.!(masm.asm);
 		var c = X86_64Regs2.CONFIG;
 		var func_arg = G(c.regs.func_arg);

@@ -58,8 +58,13 @@ class RegConfig(regSet: RegSet, regs: RegRoles) {
 	var mem_offset: int;
 	var accessor_offset: int;
 
-	var numRegPools: int;
-	def regToPool = Array<i8>.new(regSet.regs.length);
+	var poolMap: PoolMap;
+	var regPools: Array<RegPool32>;
+}
+// Describes how registers are divided into pools.
+class PoolMap(regSet: RegSet, numRegPools: int) {
+	def numRegs = regSet.regs.length;
+	def regToPool = Array<i8>.new(numRegs);
 	def kindToPool = Array<byte>.new(ValueKind.REF.tag + 1);
 }
 // A utility giving easy access to registers for given roles.

@@ -229,8 +229,8 @@ def G = X86_64Regs2.toGpr;
 
 // Generates {X86_64InterpreterCode} for X86-64.
 class X86_64InterpreterGen(ic: X86_64InterpreterCode, w: DataWriter) {
-	def masm = X86_64MacroAssembler.new(w, X86_64Regs2.buildIntAlloc());
-	def c = masm.regAlloc.regConfig;
+	def masm = X86_64MacroAssembler.new(w, X86_64Regs2.CONFIG);
+	def c = masm.regConfig;
 	def asm = masm.asm;
 	def regs = IVarConfig.regs;
 	def frame = IVarConfig.frame;
