@@ -22,7 +22,7 @@ class X86_64MacroAssembler extends MacroAssembler {
 	var offsets: V3Offsets;
 
 	new(w, regConfig: RegConfig) super(Target.tagging, regConfig) {
-		scratch = G(regConfig.regs.scratch);
+		scratch = G(regConfig.scratch);
 	}
 
 	def curCodeBytes() -> u64 {

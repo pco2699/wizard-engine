@@ -21,9 +21,6 @@ class MasmLabel(create_pos: int) {
 class MacroAssembler(valuerep: Tagging, regConfig: RegConfig) {
 	var unimplemented: void -> void;
 	var trap_labels: Array<MasmLabel>;
-	def regs = regConfig.regs;
-	var scratchStackSlot1 = -1;
-	var scratchStackSlot2 = -1;
 	private var offsets: V3Offsets;
 
 	new() {
@@ -61,14 +58,14 @@ class MacroAssembler(valuerep: Tagging, regConfig: RegConfig) {
 	}
 	// Abstract stack operations
 	def slotAddr(slot: u32) -> MasmAddr {
-		return MasmAddr(regs.vfp, int.view(slot) * valuerep.slot_size + valuerep.tag_size);
+		return MasmAddr(regConfig.vfp, int.view(slot) * valuerep.slot_size + valuerep.tag_size);
 	}
 	def tagAddr(slot: u32) -> MasmAddr {
-		return MasmAddr(regs.vfp, int.view(slot) * valuerep.slot_size);
+		return MasmAddr(regConfig.vfp, int.view(slot) * valuerep.slot_size);
 	}
 
 	def getScratchReg(kind: ValueKind) -> Reg {
-		return regConfig.regs.scratch; // TODO: get kind-specific scratch register
+		return regConfig.scratch; // TODO: get kind-specific scratch register
 	}
 
 	def emit_intentional_crash() {

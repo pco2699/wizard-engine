@@ -31,7 +31,7 @@ class X86_64SinglePassCompiler extends SinglePassCompiler {
 	def asm = mmasm.asm;
 
 	new(extensions: Extension.set, limits: Limits, config: RegConfig, err: ErrorGen)
-		super(mmasm, X86_64Regs2.SPC_ALLOC.copy(), extensions, limits, err) {
+		super(X86_64Regs2.SPC_EXEC_ENV, mmasm, X86_64Regs2.SPC_ALLOC.copy(), extensions, limits, err) {
 	}
 
 	private def visitCompareI(asm: X86_64Assembler, cond: X86_64Cond) -> bool {
@@ -668,17 +668,17 @@ component X86_64Spc {
 	def genEntryStub(w: DataWriter) {
 		var masm = X86_64MacroAssembler.new(w, X86_64Regs2.CONFIG);
 		var asm = X86_64Assembler.!(masm.asm);
-		var c = X86_64Regs2.CONFIG;
-		var func_arg = G(c.regs.func_arg);
+		var regs = X86_64Regs2.SPC_EXEC_ENV;
+		var func_arg = G(regs.func_arg);
 		if (func_arg == Target.V3_PARAM_GPRS[2]) {
 			// XXX: use macro assembler to order moves
 			var scratch = masm.scratch;
 			asm.movq_r_r(scratch, func_arg);
 			asm.movq_r_r(func_arg, Target.V3_PARAM_GPRS[1]);	// function
-			asm.movq_r_r(G(c.regs.vsp), scratch);			// vsp
+			asm.movq_r_r(G(regs.vsp), scratch);			// vsp
 		} else {
 			asm.movq_r_r(func_arg, Target.V3_PARAM_GPRS[1]);	// function
-			asm.movq_r_r(G(c.regs.vsp), Target.V3_PARAM_GPRS[2]);	// vsp
+			asm.movq_r_r(G(regs.vsp), Target.V3_PARAM_GPRS[2]);	// vsp
 		}
 		asm.ijmp_r(Target.V3_PARAM_GPRS[3]);				// tail-call entrypoint
 		asm.invalid();
@@ -697,11 +697,11 @@ component X86_64Spc {
 	def genLazyCompileStub(w: DataWriter) {
 		var masm = X86_64MacroAssembler.new(w, X86_64Regs2.CONFIG);
 		var asm = X86_64Assembler.!(masm.asm);
-		var c = X86_64Regs2.CONFIG;
-		var func_arg = G(c.regs.func_arg);
-		asm.pushq_r(G(c.regs.func_arg));				// push function onto stack
-		masm.emit_store_runtime_vsp(c.regs.vsp);
-		asm.movq_r_r(Target.V3_PARAM_GPRS[1], G(c.regs.func_arg));	// function
+		var regs = X86_64Regs2.SPC_EXEC_ENV;
+		var func_arg = G(regs.func_arg);
+		asm.pushq_r(G(regs.func_arg));				// push function onto stack
+		masm.emit_store_runtime_vsp(regs.vsp);
+		asm.movq_r_r(Target.V3_PARAM_GPRS[1], G(regs.func_arg));	// function
 		// Load {lazyCompileObject}.
 		var obj_ptr = int.view(u32.!((Pointer.atField(lazyCompileObject) - Pointer.NULL)));
 		asm.movq_r_m(Target.V3_PARAM_GPRS[0], X86_64Addr.new(null, null, 1, obj_ptr));
@@ -716,8 +716,8 @@ component X86_64Spc {
 		// Tail-call the result of the compile.
 		var scratch = X86_64Regs.R15;
 		asm.movq_r_r(scratch, Target.V3_RET_GPRS[1]);			// entrypoint
-		asm.movq_r_r(G(c.regs.func_arg), Target.V3_RET_GPRS[0]);	// function
-		masm.emit_load_runtime_vsp(c.regs.vsp);
+		asm.movq_r_r(G(regs.func_arg), Target.V3_RET_GPRS[0]);	// function
+		masm.emit_load_runtime_vsp(regs.vsp);
 		asm.ijmp_r(scratch);						// jump to entrypoint
 		asm.invalid();
 		// Simply return the {Throwable} object.
@@ -739,20 +739,20 @@ component X86_64Spc {
 	def genTierupCompileStub(w: DataWriter, ic: X86_64InterpreterCode) {
 		var masm = X86_64MacroAssembler.new(w, X86_64Regs2.CONFIG);
 		var asm = X86_64Assembler.!(masm.asm);
-		var c = X86_64Regs2.CONFIG;
-		var func_arg = G(c.regs.func_arg);
+		var regs = X86_64Regs2.SPC_EXEC_ENV;
+		var func_arg = G(regs.func_arg);
 		// Decrement execution counter by 1 and compile if <= 0
 		var scratch = X86_64Regs.R15; // XXX: regs.func_arg == scratch!
 		var offsets = V3Offsets.new();
-		asm.movq_r_m(scratch, G(c.regs.func_arg).plus(offsets.WasmFunction_decl));
+		asm.movq_r_m(scratch, G(regs.func_arg).plus(offsets.WasmFunction_decl));
 		asm.q.sub_m_i(scratch.plus(offsets.FuncDecl_tierup_trigger), 1);
 		var interpreter_entry = X86_64Label.new();
 		interpreter_entry.pos = ic.intSpcEntryOffset;
 		asm.jc_rel_near(C.NA, interpreter_entry);			// jump to interpreter if >= 0
 		// Call compiler
-		asm.pushq_r(G(c.regs.func_arg));				// push function onto stack
-		masm.emit_store_runtime_vsp(c.regs.vsp);
-		asm.movq_r_r(Target.V3_PARAM_GPRS[1], G(c.regs.func_arg));	// function
+		asm.pushq_r(G(regs.func_arg));				// push function onto stack
+		masm.emit_store_runtime_vsp(regs.vsp);
+		asm.movq_r_r(Target.V3_PARAM_GPRS[1], G(regs.func_arg));	// function
 		// Load {lazyCompileObject}.
 		var obj_ptr = int.view(u32.!((Pointer.atField(lazyCompileObject) - Pointer.NULL)));
 		asm.movq_r_m(Target.V3_PARAM_GPRS[0], X86_64Addr.new(null, null, 1, obj_ptr));
@@ -762,8 +762,8 @@ component X86_64Spc {
 		asm.q.add_r_i(R.RSP, Pointer.SIZE);				// pop function off stack
 		// Tail-call the result of the compile (which could be interpreter entry).
 		asm.movq_r_r(scratch, Target.V3_RET_GPRS[1]);			// entrypoint
-		asm.movq_r_r(G(c.regs.func_arg), Target.V3_RET_GPRS[0]);	// function
-		masm.emit_load_runtime_vsp(c.regs.vsp);
+		asm.movq_r_r(G(regs.func_arg), Target.V3_RET_GPRS[0]);	// function
+		masm.emit_load_runtime_vsp(regs.vsp);
 		asm.ijmp_r(scratch);						// jump to entrypoint
 		asm.invalid();
 	}

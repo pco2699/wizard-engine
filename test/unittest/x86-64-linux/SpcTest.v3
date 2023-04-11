@@ -37,8 +37,7 @@ def regSet = regConfig.regSet;
 
 def setupRegConfig() -> RegConfig {
 	var regSet = RegSet.new([NO_REG, RA, RB, RC, XA, XB], [null, "%ra", "%rb", "%rc", "%xa", "%xb"]);
-	var roles = Array<Reg>.new(1 + RegRole.TLS.tag);
-	var regConfig = RegConfig.new(regSet, RegRoles.new(roles));
+	var regConfig = RegConfig.new(regSet);
 	var poolMap = PoolMap.new(regSet, 2);
 
 	for (r in POOL_0.regs) poolMap.regToPool[r.index] = 0;
