@@ -8,28 +8,28 @@ component X86_64Regs2 {
 	private def GPRS = Array<X86_64Gpr>.new(256);	// fast mapping byte -> GPR
 	private def XMMS = Array<X86_64Xmmr>.new(256);	// fast mapping byte -> XMM
 	private var all = Vector<Reg>.new().grow(32).put(NO_REG);
-	private var ints = Vector<(Reg, int)>.new().grow(16);
+	private var ints = Vector<Reg>.new().grow(16);
 	private var floats = Vector<Reg>.new().grow(16);
 	private var names = Vector<string>.new().grow(32).put(null);
 	private var num: byte = 1;
 
 	// Registers, roles, and allocation order
-	def RAX = addGpr(X86_64Regs.RAX, 0);
-	def RCX = addGpr(X86_64Regs.RCX, 3);
-	def RDX = addGpr(X86_64Regs.RDX, 4);
-	def RBX = addGpr(X86_64Regs.RBX, 1);
-	def RSP = addGpr(X86_64Regs.RSP, -1);
-	def RBP = addGpr(X86_64Regs.RBP, -1);
-	def RSI = addGpr(X86_64Regs.RSI, 2);
-	def RDI = addGpr(X86_64Regs.RDI, -1);
-	def R8  = addGpr(X86_64Regs.R8,  5);
-	def R9  = addGpr(X86_64Regs.R9,  6);
-	def R10 = addGpr(X86_64Regs.R10, -1);
-	def R11 = addGpr(X86_64Regs.R11, -1);
-	def R12 = addGpr(X86_64Regs.R12, 7);
-	def R13 = addGpr(X86_64Regs.R13, 8);
-	def R14 = addGpr(X86_64Regs.R14, 9);
-	def R15 = addGpr(X86_64Regs.R15, 10);
+	def RAX = addGpr(X86_64Regs.RAX);
+	def RCX = addGpr(X86_64Regs.RCX);
+	def RDX = addGpr(X86_64Regs.RDX);
+	def RBX = addGpr(X86_64Regs.RBX);
+	def RSP = addGpr(X86_64Regs.RSP);
+	def RBP = addGpr(X86_64Regs.RBP);
+	def RSI = addGpr(X86_64Regs.RSI);
+	def RDI = addGpr(X86_64Regs.RDI);
+	def R8  = addGpr(X86_64Regs.R8);
+	def R9  = addGpr(X86_64Regs.R9);
+	def R10 = addGpr(X86_64Regs.R10);
+	def R11 = addGpr(X86_64Regs.R11);
+	def R12 = addGpr(X86_64Regs.R12);
+	def R13 = addGpr(X86_64Regs.R13);
+	def R14 = addGpr(X86_64Regs.R14);
+	def R15 = addGpr(X86_64Regs.R15);
 
 	def XMM0 = addXmmr(X86_64Regs.XMM0);
 	def XMM1 = addXmmr(X86_64Regs.XMM1);
@@ -55,10 +55,10 @@ component X86_64Regs2 {
 	def INT_EXEC_ENV = t.1;
 	def SPC_ALLOC = buildSpcAlloc();
 
-	private def addGpr(gpr: X86_64Gpr, allocation_order: int) -> Reg {
+	private def addGpr(gpr: X86_64Gpr) -> Reg {
 		var reg = Reg(num++);
 		all.put(reg);
-		if (allocation_order >= 0) ints.put(reg, allocation_order);
+		ints.put(reg);
 		names.put(gpr.name64);
 		GPRS[reg.index] = gpr;
 		return reg;
@@ -87,7 +87,7 @@ component X86_64Regs2 {
 
 		for (i < ints.length) {
 			var r = ints[i];
-			poolMap.regToPool[r.0.index] = 0;
+			poolMap.regToPool[r.index] = 0;
 		}
 		for (i < floats.length) {
 			var r = floats[i];
@@ -164,17 +164,8 @@ component X86_64Regs2 {
 	def toXmmr(reg: Reg) -> X86_64Xmmr { return XMMS[reg.index]; }
 
 	def buildSpcAlloc() -> RegAlloc {
-		var intOrder = Vector<Reg>.new().resize(ints.length);
-		var max = int.min;
-		for (i < ints.length) {
-			var r = ints[i];
-			if (r.1 < 0) continue;
-			intOrder[r.1] = r.0;
-			if (r.1 > max) max = r.1;
-		}
-		intOrder.resize(max);
 		var pools = [
-			RegPool32.new(intOrder.extract()),
+			RegPool32.new([RAX, RBX, RSI, RCX, RDX, R8, R9, R12, R13, R14, R15]),
 			RegPool32.new([XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7, XMM8, XMM9, XMM10, XMM11, XMM12, XMM13, XMM14])
 		];
 		return RegAlloc.new(CONFIG.poolMap, pools, null);
