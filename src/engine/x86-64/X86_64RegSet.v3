@@ -1,8 +1,8 @@
 // Copyright 2022 Ben L. Titzer. All rights reserved.
 // See LICENSE for details of Apache 2.0 license.
 
-// Describes the set of architectural registers for X86-64.
-component X86_64Regs2 {
+// Describes the set of architectural registers for X86-64 for the macro assembler.
+component X86_64MasmRegs {
 	// local state used during building of {SET} and {CONFIG}
 	def NO_REG = Reg(0);
 	private def GPRS = Array<X86_64Gpr>.new(256);	// fast mapping byte -> GPR

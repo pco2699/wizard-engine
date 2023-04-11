@@ -1,7 +1,7 @@
 // Copyright 2022 Ben L. Titzer. All rights reserved.
 // See LICENSE for details of Apache 2.0 license.
 
-def G = X86_64Regs2.toGpr, X = X86_64Regs2.toXmmr;
+def G = X86_64MasmRegs.toGpr, X = X86_64MasmRegs.toXmmr;
 def R: X86_64Regs;
 def C: X86_64Conds;
 def A(ma: MasmAddr) -> X86_64Addr {

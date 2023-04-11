@@ -225,7 +225,7 @@ def TYPE_HAS_IMM: byte = 0x80;
 def TYPE_IS_LEB: byte = 0x40;
 def TYPE_IS_ABSTRACT: byte = 0x20;
 def LEB_UPPER_BIT: byte = 0x80;
-def G = X86_64Regs2.toGpr;
+def G = X86_64MasmRegs.toGpr;
 
 class IntExecEnv {
 	// Frame information.
@@ -276,12 +276,12 @@ class IntExecEnv {
 
 // Generates {X86_64InterpreterCode} for X86-64.
 class X86_64InterpreterGen(ic: X86_64InterpreterCode, w: DataWriter) {
-	def masm = X86_64MacroAssembler.new(w, X86_64Regs2.CONFIG);
+	def masm = X86_64MacroAssembler.new(w, X86_64MasmRegs.CONFIG);
 	def c = masm.regConfig;
 	def asm = masm.asm;
 	def regs = IVarConfig.regs;
 	def frame = IVarConfig.frame;
-	def xenv: IntExecEnv = X86_64Regs2.INT_EXEC_ENV;
+	def xenv: IntExecEnv = X86_64MasmRegs.INT_EXEC_ENV;
 
 	def offsets = V3Offsets.new();
 	def valuerep = Target.tagging;
