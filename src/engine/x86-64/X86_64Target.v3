@@ -326,6 +326,7 @@ class X86_64DynamicStrategy extends X86_64ExecutionStrategy {
 		var masm = X86_64MacroAssembler.!(compiler.masm);
 		var entrypoint = code.appendCode(masm);
 		var offset = X86_64MasmLabel.!(label).label.pos;
+		if (Trace.compiler) Trace.OUT.put3("func[%d].osr_entry (+%d): break *0x%x", wf.decl.func_index, pc, (entrypoint + offset) - Pointer.NULL).outln();
 		Target.setTargetCode(wf.decl, entrypoint); 		// TODO: install code into function if it doesn't have it already
 		return TargetOsrInfo(entrypoint, List.new((pc, offset), null));
 	}
